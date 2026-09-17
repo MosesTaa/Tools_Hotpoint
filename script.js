@@ -1,3050 +1,1280 @@
-/* ============================================================
-   ONSITE QUOTATION
-   HVAC QUOTATION SYSTEM
-   Moses Ntella Taa
-============================================================ */
+"use strict";
 
+/* =========================================================
+   HOTPOINT TOOLS TRACKER
+   ========================================================= */
 
-/* ============================================================
-   GLOBAL DATA
-============================================================ */
+const STORAGE_KEY = "hotpointToolsTrackerV1";
+const ADMIN_USER = "ADMIN";
+const ADMIN_PASSWORD = "Hotpoint_tools";
 
-const state = {
+/* =========================================================
+   DEFAULT TOOLS
+   ========================================================= */
 
-    rooms: [],
-
-    otherItems: [],
-
-    copperRate: 0,
-
-    drainageRate: 0,
-
-    currentPage: "page1"
-
-};
-
-
-/* ============================================================
-   AC CAPACITIES
-============================================================ */
-
-const AC_CAPACITIES = [
-    6000,
-    9000,
-    12000,
-    18000,
-    24000,
-    48000
+const seedTools = [
+    {
+        name: "Ladders",
+        quantity: 2,
+        description:
+            "Access ladders for installation and service work."
+    },
+    {
+        name: "Flaring Kit",
+        quantity: 2,
+        description:
+            "Copper pipe flaring tools and accessories."
+    },
+    {
+        name: "Oxy/Acetylene Gauge",
+        quantity: 1,
+        description:
+            "Gauge set for controlled oxy-acetylene work."
+    },
+    {
+        name: "Grinder",
+        quantity: 2,
+        description:
+            "Portable angle grinder for workshop and site tasks."
+    },
+    {
+        name: "Scaffolding",
+        quantity: 1,
+        description:
+            "Mobile scaffolding set for elevated work."
+    }
 ];
 
+/* =========================================================
+   GENERAL FUNCTIONS
+   ========================================================= */
 
-/* ============================================================
-   INITIALIZE
-============================================================ */
-
-document.addEventListener("DOMContentLoaded", () => {
-
-    addRoomInput();
-
-    updateRoomPreview();
-
-    setupEventListeners();
-
-    updateProgress("page1");
-
-});
-
-
-/* ============================================================
-   EVENT LISTENERS
-============================================================ */
-
-function setupEventListeners() {
-
-    document
-        .getElementById("addRoomBtn")
-        .addEventListener("click", addRoomInput);
-
-
-    document
-        .getElementById("roomsProceedBtn")
-        .addEventListener("click", saveRooms);
-
-
-    document
-        .getElementById("dimensionsPreviewBtn")
-        .addEventListener("click", previewDimensions);
-
-
-    document
-        .getElementById("dimensionsProceedBtn")
-        .addEventListener("click", () => {
-
-            renderCopperInputs();
-
-            goToPage("page3");
-
-        });
-
-
-    document
-        .getElementById("copperPreviewBtn")
-        .addEventListener("click", previewCopper);
-
-
-    document
-        .getElementById("copperProceedBtn")
-        .addEventListener("click", () => {
-
-            renderFactorInputs();
-
-            goToPage("page4");
-
-        });
-
-
-    document
-        .getElementById("factorPreviewBtn")
-        .addEventListener("click", previewFactors);
-
-
-    document
-        .getElementById("factorProceedBtn")
-        .addEventListener("click", () => {
-
-            renderACPriceInputs();
-
-            goToPage("page5");
-
-        });
-
-
-    document
-        .getElementById("acPricePreviewBtn")
-        .addEventListener("click", previewACPrices);
-
-
-    document
-        .getElementById("acPriceProceedBtn")
-        .addEventListener("click", () => {
-
-            renderDrainageInputs();
-
-            goToPage("page6");
-
-        });
-
-
-    document
-        .getElementById("drainagePreviewBtn")
-        .addEventListener("click", previewDrainage);
-
-
-    document
-        .getElementById("drainageProceedBtn")
-        .addEventListener("click", () => {
-
-            goToPage("page7");
-
-        });
-
-
-    document
-        .getElementById("addOtherItemBtn")
-        .addEventListener("click", addOtherItem);
-
-
-    document
-        .getElementById("generateQuotationBtn")
-        .addEventListener("click", generateQuotationPreview);
-
-
-    document
-        .getElementById("downloadPdfBtn")
-        .addEventListener("click", generatePDF);
-
-
-    [
-        "otherItemQty",
-        "otherItemPrice"
-    ].forEach(id => {
-
-        document
-            .getElementById(id)
-            .addEventListener("input", updateOtherItemTotal);
-
-    });
-
+function uid() {
+    return (
+        Date.now().toString(36) +
+        Math.random().toString(36).slice(2, 8)
+    );
 }
 
+function today() {
+    return new Date().toISOString().slice(0, 10);
+}
 
-/* ============================================================
-   PAGE NAVIGATION
-============================================================ */
-
-function goToPage(pageId) {
-
-    document
-        .querySelectorAll(".page")
-        .forEach(page => {
-
-            page.classList.remove("active");
-
-        });
-
-
-    const page = document.getElementById(pageId);
-
-    if (page) {
-
-        page.classList.add("active");
-
-        state.currentPage = pageId;
-
-        updateProgress(pageId);
-
-        window.scrollTo({
-            top: 0,
-            behavior: "smooth"
-        });
-
+function prettyDate(value) {
+    if (!value) {
+        return "—";
     }
 
+    return new Date(
+        `${value}T00:00:00`
+    ).toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric"
+    });
 }
 
+function escapeHTML(value) {
+    return String(value ?? "").replace(
+        /[&<>'"]/g,
+        character => {
+            return {
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "'": "&#39;",
+                '"': "&quot;"
+            }[character];
+        }
+    );
+}
 
-/* ============================================================
-   PROGRESS
-============================================================ */
+/* =========================================================
+   STORAGE
+   ========================================================= */
 
-function updateProgress(pageId) {
+function normalizeData(data) {
+    data.tools.forEach(tool => {
+        tool.assignments.forEach(assignment => {
+            assignment.site =
+                assignment.site || "Not recorded";
 
-    const pageNumbers = {
+            assignment.action =
+                assignment.action || "Assigned";
+        });
+    });
 
-        page1: 1,
+    data.history.forEach(record => {
+        record.site =
+            record.site || "Not recorded";
 
-        page2: 2,
-        page2Preview: 2,
+        record.action =
+            record.action || "Assigned";
+    });
 
-        page3: 3,
-        page3Preview: 3,
+    return data;
+}
 
-        page4: 4,
-        page4Preview: 4,
+function loadData() {
+    try {
+        const savedData = JSON.parse(
+            localStorage.getItem(STORAGE_KEY)
+        );
 
-        page5: 5,
-        page5Preview: 5,
+        if (
+            savedData &&
+            Array.isArray(savedData.tools) &&
+            Array.isArray(savedData.history)
+        ) {
+            return normalizeData(savedData);
+        }
+    } catch (error) {
+        console.error(
+            "Unable to load saved tool records:",
+            error
+        );
+    }
 
-        page6: 6,
-        page6Preview: 6,
+    const initialData = {
+        tools: seedTools.map(tool => ({
+            ...tool,
+            id: uid(),
+            assignments: []
+        })),
 
-        page7: 7,
-
-        page8: 8
-
+        history: []
     };
 
+    saveData(initialData);
 
-    const number =
-        pageNumbers[pageId] || 1;
-
-
-    const percentage =
-        (number / 8) * 100;
-
-
-    document
-        .getElementById("progressFill")
-        .style.width =
-        percentage + "%";
-
-
-    document
-        .getElementById("stepText")
-        .textContent =
-        `Step ${number} of 8`;
-
+    return initialData;
 }
 
+function saveData(data) {
+    localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(data)
+    );
 
-/* ============================================================
-   ROOM INPUTS
-============================================================ */
+    window.dispatchEvent(
+        new Event("tracker-updated")
+    );
+}
 
-function addRoomInput(value = "") {
+function available(tool) {
+    return Math.max(
+        0,
+        tool.quantity - tool.assignments.length
+    );
+}
 
-    const container =
-        document.getElementById("roomInputs");
-
-
-    const card =
-        document.createElement("div");
-
-    card.className =
-        "room-input-card";
-
-
-    card.innerHTML = `
-
-        <div>
-
-            <label>
-                Room Name
-            </label>
-
-            <input
-                type="text"
-                class="room-name-input"
-                placeholder="e.g. Master Bedroom"
-                value="${escapeHTML(value)}"
-            >
-
-        </div>
-
-        <button
-            type="button"
-            class="remove-room"
-        >
-            Remove
-        </button>
-
+function statusChip(text, type) {
+    return `
+        <span class="status ${type}">
+            ${escapeHTML(text)}
+        </span>
     `;
+}
 
+/* =========================================================
+   REQUEST TOOL PAGE
+   ========================================================= */
 
-    card
-        .querySelector(".remove-room")
-        .addEventListener("click", () => {
+function initRequest() {
+    const searchInput =
+        document.querySelector("#toolSearch");
 
-            card.remove();
+    const historyFilter =
+        document.querySelector("#historyFilter");
 
-            updateRoomPreview();
+    function renderRequestPage() {
+        const data = loadData();
 
+        const searchText = searchInput.value
+            .trim()
+            .toLowerCase();
+
+        const displayedTools = data.tools.filter(tool => {
+            const assignments = tool.assignments
+                .map(assignment => {
+                    return `
+                        ${assignment.technician}
+                        ${assignment.site}
+                    `;
+                })
+                .join(" ");
+
+            const searchableText = `
+                ${tool.name}
+                ${tool.description}
+                ${assignments}
+            `.toLowerCase();
+
+            return searchableText.includes(searchText);
         });
 
-
-    card
-        .querySelector("input")
-        .addEventListener("input", updateRoomPreview);
-
-
-    container.appendChild(card);
-
-    updateRoomPreview();
-
-}
-
-
-/* ============================================================
-   SAVE ROOMS
-============================================================ */
-
-function saveRooms() {
-
-    const inputs =
-        document.querySelectorAll(".room-name-input");
-
-
-    const names = [];
-
-
-    inputs.forEach(input => {
-
-        const name =
-            input.value.trim();
-
-
-        if (name) {
-
-            names.push(name);
-
-        }
-
-    });
-
-
-    if (names.length === 0) {
-
-        alert("Please add at least one room.");
-
-        return;
-
+        renderSummary(data);
+        renderTools(displayedTools);
+        renderTechnicianFilter(data);
+        renderHistory(data);
     }
 
+    function renderSummary(data) {
+        const totalUnits = data.tools.reduce(
+            (total, tool) => {
+                return total + tool.quantity;
+            },
+            0
+        );
 
-    state.rooms =
-        names.map((name, index) => ({
+        const availableUnits = data.tools.reduce(
+            (total, tool) => {
+                return total + available(tool);
+            },
+            0
+        );
 
-            id: Date.now() + index,
+        const allocatedUnits = data.tools.reduce(
+            (total, tool) => {
+                return total + tool.assignments.length;
+            },
+            0
+        );
 
-            name,
+        document.querySelector(
+            "#totalUnits"
+        ).textContent = totalUnits;
 
-            length: 0,
+        document.querySelector(
+            "#availableUnits"
+        ).textContent = availableUnits;
 
-            width: 0,
-
-            area: 0,
-
-            copperLength: 0,
-
-            factor: 0,
-
-            calculatedLoad: 0,
-
-            acCapacity: 0,
-
-            acPrice: 0,
-
-            drainageLength: 0
-
-        }));
-
-
-    renderDimensionInputs();
-
-    goToPage("page2");
-
-}
-
-
-/* ============================================================
-   ROOM PREVIEW
-============================================================ */
-
-function updateRoomPreview() {
-
-    const container =
-        document.getElementById("roomListPreview");
-
-
-    const inputs =
-        document.querySelectorAll(".room-name-input");
-
-
-    const names = [];
-
-
-    inputs.forEach(input => {
-
-        const value =
-            input.value.trim();
-
-
-        if (value) {
-
-            names.push(value);
-
-        }
-
-    });
-
-
-    if (names.length === 0) {
-
-        container.innerHTML = `
-            <p class="empty-message">
-                No rooms added yet.
-            </p>
-        `;
-
-        return;
-
+        document.querySelector(
+            "#allocatedUnits"
+        ).textContent = allocatedUnits;
     }
 
-
-    container.innerHTML =
-        names
-            .map((name, index) => `
-
-                <div class="room-preview-card">
-
-                    <div>
-                        <span>
-                            ${index + 1}.
-                        </span>
-
-                        <span class="room-name">
-                            ${escapeHTML(name)}
-                        </span>
-                    </div>
-
-                </div>
-
-            `)
-            .join("");
-
-}
-
-
-/* ============================================================
-   RENDER DIMENSION INPUTS
-============================================================ */
-
-function renderDimensionInputs() {
-
-    const container =
-        document.getElementById("dimensionInputs");
-
-
-    container.innerHTML = "";
-
-
-    state.rooms.forEach((room, index) => {
-
-        const card =
-            document.createElement("div");
-
-
-        card.className =
-            "dimension-card";
-
-
-        card.innerHTML = `
-
-            <div class="card-title">
-                ${index + 1}. ${escapeHTML(room.name)}
-            </div>
-
-            <div class="input-grid">
-
-                <div>
-
-                    <label>
-                        Length (m)
-                    </label>
-
-                    <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        class="length-input"
-                        data-index="${index}"
-                        value="${room.length || ""}"
-                        placeholder="Length"
-                    >
-
-                </div>
-
-
-                <div>
-
-                    <label>
-                        Width (m)
-                    </label>
-
-                    <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        class="width-input"
-                        data-index="${index}"
-                        value="${room.width || ""}"
-                        placeholder="Width"
-                    >
-
-                </div>
-
-            </div>
-
-            <div
-                class="area-display"
-                id="area-${index}"
-            >
-                Area: ${formatNumber(room.area || 0)} m²
-            </div>
-
-        `;
-
-
-        container.appendChild(card);
-
-    });
-
-
-    document
-        .querySelectorAll(".length-input, .width-input")
-        .forEach(input => {
-
-            input.addEventListener("input", updateLiveArea);
-
-        });
-
-}
-
-
-/* ============================================================
-   LIVE AREA
-============================================================ */
-
-function updateLiveArea(event) {
-
-    const index =
-        Number(event.target.dataset.index);
-
-
-    const card =
-        event.target.closest(".dimension-card");
-
-
-    const length =
-        Number(
-            card.querySelector(".length-input").value
-        ) || 0;
-
-
-    const width =
-        Number(
-            card.querySelector(".width-input").value
-        ) || 0;
-
-
-    const area =
-        length * width;
-
-
-    document
-        .getElementById(`area-${index}`)
-        .textContent =
-        `Area: ${formatNumber(area)} m²`;
-
-}
-
-
-/* ============================================================
-   PREVIEW DIMENSIONS
-============================================================ */
-
-function previewDimensions() {
-
-    let valid = true;
-
-
-    state.rooms.forEach((room, index) => {
-
-        const lengthInput =
-            document.querySelector(
-                `.length-input[data-index="${index}"]`
-            );
-
-
-        const widthInput =
-            document.querySelector(
-                `.width-input[data-index="${index}"]`
-            );
-
-
-        const length =
-            Number(lengthInput.value);
-
-
-        const width =
-            Number(widthInput.value);
-
-
-        if (
-            !length ||
-            !width ||
-            length <= 0 ||
-            width <= 0
-        ) {
-
-            valid = false;
-
-        }
-
-
-        room.length = length;
-
-        room.width = width;
-
-        room.area = length * width;
-
-    });
-
-
-    if (!valid) {
-
-        alert(
-            "Please enter valid length and width for every room."
-        );
-
-        return;
-
-    }
-
-
-    const tbody =
-        document.getElementById(
-            "dimensionPreviewTable"
-        );
-
-
-    tbody.innerHTML =
-        state.rooms
-            .map((room, index) => `
-
-                <tr>
-
-                    <td>${index + 1}</td>
-
-                    <td>${escapeHTML(room.name)}</td>
-
-                    <td>${formatNumber(room.length)}</td>
-
-                    <td>${formatNumber(room.width)}</td>
-
-                    <td>
-                        <strong>
-                            ${formatNumber(room.area)}
-                        </strong>
-                    </td>
-
-                </tr>
-
-            `)
-            .join("");
-
-
-    goToPage("page2Preview");
-
-}
-
-
-/* ============================================================
-   COPPER INPUTS
-============================================================ */
-
-function renderCopperInputs() {
-
-    const container =
-        document.getElementById("copperInputs");
-
-
-    container.innerHTML = "";
-
-
-    state.rooms.forEach((room, index) => {
-
-        const card =
-            document.createElement("div");
-
-
-        card.className =
-            "copper-card";
-
-
-        card.innerHTML = `
-
-            <div class="card-title">
-
-                ${index + 1}.
-                ${escapeHTML(room.name)}
-
-            </div>
-
-            <label>
-                Copper Length (m)
-            </label>
-
-            <input
-                type="number"
-                min="0"
-                step="0.01"
-                class="copper-length-input"
-                data-index="${index}"
-                value="${room.copperLength || ""}"
-                placeholder="e.g. 12"
-            >
-
-        `;
-
-
-        container.appendChild(card);
-
-    });
-
-}
-
-
-/* ============================================================
-   PREVIEW COPPER
-============================================================ */
-
-function previewCopper() {
-
-    let valid = true;
-
-
-    state.rooms.forEach((room, index) => {
-
-        const input =
-            document.querySelector(
-                `.copper-length-input[data-index="${index}"]`
-            );
-
-
-        const value =
-            Number(input.value);
-
-
-        if (
-            !value ||
-            value < 0
-        ) {
-
-            valid = false;
-
-        }
-
-
-        room.copperLength =
-            value;
-
-    });
-
-
-    if (!valid) {
-
-        alert(
-            "Please enter a valid copper length for every room."
-        );
-
-        return;
-
-    }
-
-
-    const tbody =
-        document.getElementById(
-            "copperPreviewTable"
-        );
-
-
-    tbody.innerHTML =
-        state.rooms
-            .map((room, index) => `
-
-                <tr>
-
-                    <td>${index + 1}</td>
-
-                    <td>${escapeHTML(room.name)}</td>
-
-                    <td>
-                        <strong>
-                            ${formatNumber(room.copperLength)} m
-                        </strong>
-                    </td>
-
-                </tr>
-
-            `)
-            .join("");
-
-
-    goToPage("page3Preview");
-
-}
-
-
-/* ============================================================
-   COOLING LOAD FACTOR
-============================================================ */
-
-function renderFactorInputs() {
-
-    const container =
-        document.getElementById("factorInputs");
-
-
-    container.innerHTML = "";
-
-
-    state.rooms.forEach((room, index) => {
-
-        const card =
-            document.createElement("div");
-
-
-        card.className =
-            "factor-card";
-
-
-        card.innerHTML = `
-
-            <div class="card-title">
-
-                ${index + 1}.
-                ${escapeHTML(room.name)}
-
-            </div>
-
-            <div class="small-text">
-
-                Room area:
-                <strong>
-                    ${formatNumber(room.area)} m²
-                </strong>
-
-            </div>
-
-
-            <label>
-                Base Cooling Load Factor
-            </label>
-
-            <input
-                type="number"
-                min="0"
-                step="0.01"
-                class="factor-input"
-                data-index="${index}"
-                value="${room.factor || ""}"
-                placeholder="e.g. 150"
-            >
-
-
-            <div
-                class="area-display"
-                id="load-${index}"
-            >
-                Calculated Load:
-                ${formatNumber(room.calculatedLoad || 0)}
-            </div>
-
-        `;
-
-
-        container.appendChild(card);
-
-    });
-
-
-    document
-        .querySelectorAll(".factor-input")
-        .forEach(input => {
-
-            input.addEventListener(
-                "input",
-                updateLiveLoad
-            );
-
-        });
-
-}
-
-
-/* ============================================================
-   LIVE COOLING LOAD
-============================================================ */
-
-function updateLiveLoad(event) {
-
-    const index =
-        Number(event.target.dataset.index);
-
-
-    const factor =
-        Number(event.target.value) || 0;
-
-
-    const room =
-        state.rooms[index];
-
-
-    const load =
-        room.area * factor;
-
-
-    document
-        .getElementById(`load-${index}`)
-        .textContent =
-        `Calculated Load: ${formatNumber(load)}`;
-
-}
-
-
-/* ============================================================
-   FIND AC CAPACITY
-============================================================ */
-
-function recommendCapacity(load) {
-
-    for (
-        const capacity
-        of AC_CAPACITIES
-    ) {
-
-        if (load <= capacity) {
-
-            return capacity;
-
-        }
-
-    }
-
-
-    return 48000;
-
-}
-
-
-/* ============================================================
-   PREVIEW FACTORS
-============================================================ */
-
-function previewFactors() {
-
-    let valid = true;
-
-
-    state.rooms.forEach((room, index) => {
-
-        const input =
-            document.querySelector(
-                `.factor-input[data-index="${index}"]`
-            );
-
-
-        const factor =
-            Number(input.value);
-
-
-        if (
-            !factor ||
-            factor <= 0
-        ) {
-
-            valid = false;
-
-        }
-
-
-        room.factor =
-            factor;
-
-
-        room.calculatedLoad =
-            room.area * factor;
-
-
-        room.acCapacity =
-            recommendCapacity(
-                room.calculatedLoad
-            );
-
-    });
-
-
-    if (!valid) {
-
-        alert(
-            "Please enter a valid cooling load factor for every room."
-        );
-
-        return;
-
-    }
-
-
-    const tbody =
-        document.getElementById(
-            "factorPreviewTable"
-        );
-
-
-    tbody.innerHTML =
-        state.rooms
-            .map((room, index) => `
-
-                <tr>
-
-                    <td>${index + 1}</td>
-
-                    <td>${escapeHTML(room.name)}</td>
-
-                    <td>
-                        ${formatNumber(room.area)}
-                    </td>
-
-                    <td>
-                        ${formatNumber(room.factor)}
-                    </td>
-
-                    <td>
-                        ${formatNumber(room.calculatedLoad)}
-                    </td>
-
-                    <td>
-                        <span class="capacity-badge">
-                            ${formatCapacity(room.acCapacity)}
-                        </span>
-                    </td>
-
-                </tr>
-
-            `)
-            .join("");
-
-
-    goToPage("page4Preview");
-
-}
-
-
-/* ============================================================
-   UNIQUE AC CAPACITIES
-============================================================ */
-
-function getUniqueCapacities() {
-
-    return [
-        ...new Set(
-            state.rooms.map(
-                room => room.acCapacity
-            )
-        )
-    ]
-    .sort((a, b) => a - b);
-
-}
-
-
-/* ============================================================
-   AC PRICE INPUTS
-============================================================ */
-
-function renderACPriceInputs() {
-
-    const container =
-        document.getElementById(
-            "acPriceInputs"
-        );
-
-
-    container.innerHTML = "";
-
-
-    const capacities =
-        getUniqueCapacities();
-
-
-    capacities.forEach(capacity => {
-
-        const quantity =
-            state.rooms.filter(
-                room =>
-                    room.acCapacity === capacity
-            ).length;
-
-
-        const roomWithPrice =
-            state.rooms.find(
-                room =>
-                    room.acCapacity === capacity
-            );
-
-
-        const card =
-            document.createElement("div");
-
-
-        card.className =
-            "form-card";
-
-
-        card.innerHTML = `
-
-            <div class="card-title">
-
-                <span class="capacity-badge">
-                    ${formatCapacity(capacity)}
-                </span>
-
-            </div>
-
-            <p class="small-text">
-                Quantity required:
-                <strong>${quantity}</strong>
-            </p>
-
-            <label>
-                Unit Price (KES)
-            </label>
-
-            <input
-                type="number"
-                min="0"
-                step="0.01"
-                class="ac-price-input"
-                data-capacity="${capacity}"
-                value="${roomWithPrice.acPrice || ""}"
-                placeholder="Enter equipment price"
-            >
-
-        `;
-
-
-        container.appendChild(card);
-
-    });
-
-}
-
-
-/* ============================================================
-   PREVIEW AC PRICES
-============================================================ */
-
-function previewACPrices() {
-
-    const capacities =
-        getUniqueCapacities();
-
-
-    let valid = true;
-
-
-    capacities.forEach(capacity => {
-
-        const input =
-            document.querySelector(
-                `.ac-price-input[data-capacity="${capacity}"]`
-            );
-
-
-        const price =
-            Number(input.value);
-
-
-        if (
-            !price ||
-            price < 0
-        ) {
-
-            valid = false;
-
-        }
-
-
-        state.rooms
-            .filter(
-                room =>
-                    room.acCapacity === capacity
-            )
-            .forEach(room => {
-
-                room.acPrice =
-                    price;
-
-            });
-
-    });
-
-
-    if (!valid) {
-
-        alert(
-            "Please enter a valid price for every AC capacity."
-        );
-
-        return;
-
-    }
-
-
-    const tbody =
-        document.getElementById(
-            "acPricePreviewTable"
-        );
-
-
-    tbody.innerHTML =
-        capacities
-            .map(capacity => {
-
-                const rooms =
-                    state.rooms.filter(
-                        room =>
-                            room.acCapacity === capacity
-                    );
-
-
-                const quantity =
-                    rooms.length;
-
-
-                const unitPrice =
-                    rooms[0].acPrice;
-
-
-                const total =
-                    quantity * unitPrice;
-
+    function renderTools(tools) {
+        const toolGrid =
+            document.querySelector("#toolGrid");
+
+        toolGrid.innerHTML = tools
+            .map(tool => {
+                const freeUnits = available(tool);
+
+                const status =
+                    freeUnits > 0
+                        ? statusChip(
+                            "AVAILABLE",
+                            "free"
+                        )
+                        : statusChip(
+                            "FULLY ALLOCATED",
+                            "busy"
+                        );
+
+                const allocationList =
+                    tool.assignments.length > 0
+                        ? `
+                            <div class="assignments">
+                                ${tool.assignments
+                                    .map(assignment => {
+                                        return `
+                                            <div class="assignment-line">
+                                                <span class="assignment-person">
+                                                    <strong>
+                                                        ${escapeHTML(
+                                                            assignment.technician
+                                                        )}
+                                                    </strong>
+
+                                                    <small>
+                                                        ${escapeHTML(
+                                                            assignment.site
+                                                        )}
+                                                    </small>
+                                                </span>
+
+                                                <span>
+                                                    ${prettyDate(
+                                                        assignment.assignedDate
+                                                    )}
+                                                </span>
+                                            </div>
+                                        `;
+                                    })
+                                    .join("")}
+                            </div>
+                        `
+                        : "";
 
                 return `
+                    <article class="tool-card">
+                        <div class="tool-title">
+                            <h2>
+                                ${escapeHTML(tool.name)}
+                            </h2>
 
-                    <tr>
+                            ${status}
+                        </div>
 
-                        <td>
-                            <span class="capacity-badge">
-                                ${formatCapacity(capacity)}
-                            </span>
-                        </td>
+                        <p class="description">
+                            ${escapeHTML(tool.description)}
+                        </p>
 
-                        <td>${quantity}</td>
+                        <div class="availability">
+                            <div>
+                                <span>Total</span>
+                                <strong>
+                                    ${tool.quantity}
+                                </strong>
+                            </div>
 
-                        <td>
-                            ${formatCurrency(unitPrice)}
-                        </td>
+                            <div>
+                                <span>Free</span>
+                                <strong>
+                                    ${freeUnits}
+                                </strong>
+                            </div>
 
-                        <td>
-                            <strong>
-                                ${formatCurrency(total)}
-                            </strong>
-                        </td>
+                            <div>
+                                <span>Out</span>
+                                <strong>
+                                    ${tool.assignments.length}
+                                </strong>
+                            </div>
+                        </div>
 
-                    </tr>
-
+                        ${allocationList}
+                    </article>
                 `;
-
             })
             .join("");
 
+        document.querySelector(
+            "#emptyTools"
+        ).hidden = tools.length !== 0;
+    }
 
-    goToPage("page5Preview");
+    function renderTechnicianFilter(data) {
+        const technicianNames = [
+            ...new Set(
+                data.history.map(record => {
+                    return record.technician;
+                })
+            )
+        ].sort();
 
+        const selectedTechnician =
+            historyFilter.value;
+
+        historyFilter.innerHTML = `
+            <option value="">
+                All technicians
+            </option>
+
+            ${technicianNames
+                .map(name => {
+                    return `
+                        <option
+                            value="${escapeHTML(name)}"
+                            ${
+                                name === selectedTechnician
+                                    ? "selected"
+                                    : ""
+                            }
+                        >
+                            ${escapeHTML(name)}
+                        </option>
+                    `;
+                })
+                .join("")}
+        `;
+    }
+
+    function renderHistory(data) {
+        const selectedTechnician =
+            historyFilter.value;
+
+        const history = data.history
+            .filter(record => {
+                return (
+                    !selectedTechnician ||
+                    record.technician ===
+                        selectedTechnician
+                );
+            })
+            .sort((firstRecord, secondRecord) => {
+                return secondRecord.assignedDate.localeCompare(
+                    firstRecord.assignedDate
+                );
+            });
+
+        document.querySelector(
+            "#historyBody"
+        ).innerHTML = history
+            .map(record => {
+                const status = record.releasedDate
+                    ? statusChip(
+                        "Released / transferred",
+                        "free"
+                    )
+                    : statusChip(
+                        "Allocated",
+                        "busy"
+                    );
+
+                return `
+                    <tr>
+                        <td>
+                            ${escapeHTML(record.technician)}
+                        </td>
+
+                        <td>
+                            ${escapeHTML(record.site)}
+                        </td>
+
+                        <td>
+                            ${escapeHTML(record.toolName)}
+                        </td>
+
+                        <td>
+                            ${prettyDate(record.assignedDate)}
+                        </td>
+
+                        <td>
+                            ${prettyDate(record.releasedDate)}
+                        </td>
+
+                        <td>
+                            ${escapeHTML(record.action)}
+                        </td>
+
+                        <td>
+                            ${status}
+                        </td>
+                    </tr>
+                `;
+            })
+            .join("");
+
+        document.querySelector(
+            "#emptyHistory"
+        ).hidden = history.length !== 0;
+    }
+
+    searchInput.addEventListener(
+        "input",
+        renderRequestPage
+    );
+
+    historyFilter.addEventListener(
+        "change",
+        renderRequestPage
+    );
+
+    window.addEventListener(
+        "storage",
+        renderRequestPage
+    );
+
+    window.addEventListener(
+        "tracker-updated",
+        renderRequestPage
+    );
+
+    renderRequestPage();
 }
 
+/* =========================================================
+   ADMIN PAGE
+   ========================================================= */
 
-/* ============================================================
-   DRAINAGE
-============================================================ */
+function initAdmin() {
+    const loginPanel =
+        document.querySelector("#loginPanel");
 
-function renderDrainageInputs() {
+    const adminPanel =
+        document.querySelector("#adminPanel");
 
-    const container =
-        document.getElementById(
-            "drainageInputs"
+    const assignedDateInput =
+        document.querySelector("#assignedDate");
+
+    const transferModal =
+        document.querySelector("#transferModal");
+
+    assignedDateInput.value = today();
+
+    function showAdminPanel() {
+        loginPanel.hidden = true;
+        adminPanel.hidden = false;
+
+        renderAdmin();
+    }
+
+    function closeTransferModal() {
+        transferModal.hidden = true;
+
+        document.body.classList.remove(
+            "modal-open"
         );
 
+        document
+            .querySelector("#transferForm")
+            .reset();
+    }
 
-    container.innerHTML = "";
+    if (
+        sessionStorage.getItem("hotpointAdmin") === "yes"
+    ) {
+        showAdminPanel();
+    }
 
+    /* ADMIN LOGIN */
 
-    state.rooms.forEach((room, index) => {
+    document
+        .querySelector("#loginForm")
+        .addEventListener("submit", event => {
+            event.preventDefault();
 
-        const card =
-            document.createElement("div");
+            const username =
+                document.querySelector(
+                    "#username"
+                ).value;
 
+            const password =
+                document.querySelector(
+                    "#password"
+                ).value;
 
-        card.className =
-            "drainage-card";
+            if (
+                username !== ADMIN_USER ||
+                password !== ADMIN_PASSWORD
+            ) {
+                document.querySelector(
+                    "#loginError"
+                ).textContent =
+                    "Incorrect username or password.";
 
+                return;
+            }
 
-        card.innerHTML = `
-
-            <div class="card-title">
-
-                ${index + 1}.
-                ${escapeHTML(room.name)}
-
-            </div>
-
-            <label>
-                Drainage PVC Length (m)
-            </label>
-
-            <input
-                type="number"
-                min="0"
-                step="0.01"
-                class="drainage-length-input"
-                data-index="${index}"
-                value="${room.drainageLength || ""}"
-                placeholder="e.g. 8"
-            >
-
-        `;
-
-
-        container.appendChild(card);
-
-    });
-
-}
-
-
-/* ============================================================
-   PREVIEW DRAINAGE
-============================================================ */
-
-function previewDrainage() {
-
-    let valid = true;
-
-
-    state.rooms.forEach((room, index) => {
-
-        const input =
-            document.querySelector(
-                `.drainage-length-input[data-index="${index}"]`
+            sessionStorage.setItem(
+                "hotpointAdmin",
+                "yes"
             );
 
-
-        const value =
-            Number(input.value);
-
-
-        if (
-            value < 0 ||
-            input.value === ""
-        ) {
-
-            valid = false;
-
-        }
-
-
-        room.drainageLength =
-            value;
-
-    });
-
-
-    if (!valid) {
-
-        alert(
-            "Please enter a valid drainage length for every room."
-        );
-
-        return;
-
-    }
-
-
-    const tbody =
-        document.getElementById(
-            "drainagePreviewTable"
-        );
-
-
-    tbody.innerHTML =
-        state.rooms
-            .map((room, index) => `
-
-                <tr>
-
-                    <td>${index + 1}</td>
-
-                    <td>${escapeHTML(room.name)}</td>
-
-                    <td>
-                        <strong>
-                            ${formatNumber(room.drainageLength)} m
-                        </strong>
-                    </td>
-
-                </tr>
-
-            `)
-            .join("");
-
-
-    goToPage("page6Preview");
-
-}
-
-
-/* ============================================================
-   OTHER ITEM TOTAL
-============================================================ */
-
-function updateOtherItemTotal() {
-
-    const quantity =
-        Number(
-            document.getElementById(
-                "otherItemQty"
-            ).value
-        ) || 0;
-
-
-    const price =
-        Number(
-            document.getElementById(
-                "otherItemPrice"
-            ).value
-        ) || 0;
-
-
-    const total =
-        quantity * price;
-
-
-    document
-        .getElementById(
-            "otherItemTotal"
-        )
-        .textContent =
-        formatCurrency(total);
-
-}
-
-
-/* ============================================================
-   ADD OTHER ITEM
-============================================================ */
-
-function addOtherItem() {
-
-    const name =
-        document
-            .getElementById(
-                "otherItemName"
-            )
-            .value
-            .trim();
-
-
-    const quantity =
-        Number(
-            document.getElementById(
-                "otherItemQty"
-            ).value
-        );
-
-
-    const unit =
-        document
-            .getElementById(
-                "otherItemUnit"
-            )
-            .value
-            .trim();
-
-
-    const price =
-        Number(
-            document.getElementById(
-                "otherItemPrice"
-            ).value
-        );
-
-
-    if (!name) {
-
-        alert(
-            "Please enter an item description."
-        );
-
-        return;
-
-    }
-
-
-    if (
-        !quantity ||
-        quantity <= 0
-    ) {
-
-        alert(
-            "Please enter a valid quantity."
-        );
-
-        return;
-
-    }
-
-
-    if (
-        !unit
-    ) {
-
-        alert(
-            "Please enter the unit."
-        );
-
-        return;
-
-    }
-
-
-    if (
-        price < 0 ||
-        isNaN(price)
-    ) {
-
-        alert(
-            "Please enter a valid unit price."
-        );
-
-        return;
-
-    }
-
-
-    const total =
-        quantity * price;
-
-
-    state.otherItems.push({
-
-        name,
-
-        quantity,
-
-        unit,
-
-        unitPrice: price,
-
-        total
-
-    });
-
-
-    renderOtherItems();
-
-
-    document
-        .getElementById(
-            "otherItemName"
-        )
-        .value = "";
-
-
-    document
-        .getElementById(
-            "otherItemQty"
-        )
-        .value = "";
-
-
-    document
-        .getElementById(
-            "otherItemPrice"
-        )
-        .value = "";
-
-
-    document
-        .getElementById(
-            "otherItemTotal"
-        )
-        .textContent =
-        "KES 0.00";
-
-}
-
-
-/* ============================================================
-   RENDER OTHER ITEMS
-============================================================ */
-
-function renderOtherItems() {
-
-    const container =
-        document.getElementById(
-            "otherItemsList"
-        );
-
-
-    if (
-        state.otherItems.length === 0
-    ) {
-
-        container.innerHTML = `
-            <p class="empty-message">
-                No additional items added.
-            </p>
-        `;
-
-        return;
-
-    }
-
-
-    container.innerHTML =
-        state.otherItems
-            .map((item, index) => `
-
-                <div
-                    class="room-preview-card"
-                >
-
-                    <div>
-
-                        <strong>
-                            ${index + 4}.
-                        </strong>
-
-                        ${escapeHTML(item.name)}
-
-                        <br>
-
-                        <span class="small-text">
-
-                            ${item.quantity}
-                            ${escapeHTML(item.unit)}
-                            ×
-                            ${formatCurrency(item.unitPrice)}
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="room-actions">
-
-                        <strong>
-                            ${formatCurrency(item.total)}
-                        </strong>
-
-                        <button
-                            class="danger-btn"
-                            onclick="removeOtherItem(${index})"
-                        >
-                            Delete
-                        </button>
-
-                    </div>
-
-                </div>
-
-            `)
-            .join("");
-
-}
-
-
-/* ============================================================
-   REMOVE OTHER ITEM
-============================================================ */
-
-function removeOtherItem(index) {
-
-    if (
-        confirm(
-            "Remove this item?"
-        )
-    ) {
-
-        state.otherItems.splice(
-            index,
-            1
-        );
-
-        renderOtherItems();
-
-    }
-
-}
-
-
-/* ============================================================
-   CALCULATIONS
-============================================================ */
-
-function getEquipmentTotal() {
-
-    return state.rooms.reduce(
-        (total, room) => {
-
-            return total +
-                room.acPrice;
-
-        },
-        0
-    );
-
-}
-
-
-function getCopperTotalLength() {
-
-    return state.rooms.reduce(
-        (total, room) => {
-
-            return total +
-                Number(room.copperLength);
-
-        },
-        0
-    );
-
-}
-
-
-function getDrainageTotalLength() {
-
-    return state.rooms.reduce(
-        (total, room) => {
-
-            return total +
-                Number(room.drainageLength);
-
-        },
-        0
-    );
-
-}
-
-
-function getCopperCost() {
-
-    return (
-        getCopperTotalLength() *
-        state.copperRate
-    );
-
-}
-
-
-function getDrainageCost() {
-
-    return (
-        getDrainageTotalLength() *
-        state.drainageRate
-    );
-
-}
-
-
-function getOtherItemsTotal() {
-
-    return state.otherItems.reduce(
-        (total, item) => {
-
-            return total +
-                item.total;
-
-        },
-        0
-    );
-
-}
-
-
-function getTotalHVACWorks() {
-
-    return (
-        getEquipmentTotal() +
-
-        getCopperCost() +
-
-        getDrainageCost() +
-
-        getOtherItemsTotal()
-    );
-
-}
-
-
-function getExclusiveSummaryTotal() {
-
-    const hvac =
-        getTotalHVACWorks();
-
-
-    return (
-        15000 +
-        5000 +
-        hvac
-    );
-
-}
-
-
-function getVAT() {
-
-    return (
-        getExclusiveSummaryTotal() *
-        0.16
-    );
-
-}
-
-
-function getInclusiveTotal() {
-
-    return (
-        getExclusiveSummaryTotal() +
-        getVAT()
-    );
-
-}
-
-
-/* ============================================================
-   GENERATE QUOTATION PREVIEW
-============================================================ */
-
-function generateQuotationPreview() {
-
-    state.copperRate =
-        Number(
-            document.getElementById(
-                "copperRate"
-            ).value
-        );
-
-
-    state.drainageRate =
-        Number(
-            document.getElementById(
-                "drainageRate"
-            ).value
-        );
-
-
-    if (
-        isNaN(state.copperRate) ||
-        state.copperRate < 0
-    ) {
-
-        alert(
-            "Please enter a valid copper rate."
-        );
-
-        return;
-
-    }
-
-
-    if (
-        isNaN(state.drainageRate) ||
-        state.drainageRate < 0
-    ) {
-
-        alert(
-            "Please enter a valid drainage rate."
-        );
-
-        return;
-
-    }
-
-
-    const equipment =
-        getEquipmentTotal();
-
-
-    const copper =
-        getCopperCost();
-
-
-    const drainage =
-        getDrainageCost();
-
-
-    const hvac =
-        getTotalHVACWorks();
-
-
-    const exclusive =
-        getExclusiveSummaryTotal();
-
-
-    const vat =
-        getVAT();
-
-
-    const inclusive =
-        getInclusiveTotal();
-
-
-    document
-        .getElementById(
-            "summaryEquipment"
-        )
-        .textContent =
-        formatCurrency(equipment);
-
-
-    document
-        .getElementById(
-            "summaryCopper"
-        )
-        .textContent =
-        formatCurrency(copper);
-
-
-    document
-        .getElementById(
-            "summaryDrainage"
-        )
-        .textContent =
-        formatCurrency(drainage);
-
-
-    document
-        .getElementById(
-            "summaryHVAC"
-        )
-        .textContent =
-        formatCurrency(hvac);
-
-
-    document
-        .getElementById(
-            "summaryHVAC2"
-        )
-        .textContent =
-        formatCurrency(hvac);
-
-
-    document
-        .getElementById(
-            "summaryExclusive"
-        )
-        .textContent =
-        formatCurrency(exclusive);
-
-
-    document
-        .getElementById(
-            "summaryVAT"
-        )
-        .textContent =
-        formatCurrency(vat);
-
-
-    document
-        .getElementById(
-            "summaryInclusive"
-        )
-        .textContent =
-        formatCurrency(inclusive);
-
-
-    const otherContainer =
-        document.getElementById(
-            "summaryOtherItems"
-        );
-
-
-    otherContainer.innerHTML =
-        state.otherItems
-            .map(item => `
-
-                <div class="summary-row">
-
-                    <span>
-                        ${escapeHTML(item.name)}
-                    </span>
-
-                    <strong>
-                        ${formatCurrency(item.total)}
-                    </strong>
-
-                </div>
-
-            `)
-            .join("");
-
-
-    goToPage("page8");
-
-}
-
-
-/* ============================================================
-   PDF GENERATION
-============================================================ */
-
-function generatePDF() {
-
-    const {
-        jsPDF
-    } = window.jspdf;
-
-
-    const doc =
-        new jsPDF({
-            orientation: "portrait",
-            unit: "mm",
-            format: "a4"
+            document.querySelector(
+                "#loginError"
+            ).textContent = "";
+
+            showAdminPanel();
         });
 
+    /* ADMIN LOGOUT */
 
-    /* --------------------------------
-       COLORS
-    -------------------------------- */
+    document
+        .querySelector("#logoutBtn")
+        .addEventListener("click", () => {
+            sessionStorage.removeItem(
+                "hotpointAdmin"
+            );
 
-    const blue =
-        [0, 75, 153];
+            adminPanel.hidden = true;
+            loginPanel.hidden = false;
 
-    const cyan =
-        [0, 166, 166];
+            document.querySelector(
+                "#password"
+            ).value = "";
+        });
 
-    const dark =
-        [16, 42, 67];
+    /* ADD TOOL */
 
-    const light =
-        [235, 246, 252];
+    document
+        .querySelector("#toolForm")
+        .addEventListener("submit", event => {
+            event.preventDefault();
 
+            const data = loadData();
 
-    /* --------------------------------
-       PAGE SETTINGS
-    -------------------------------- */
+            const toolName =
+                document.querySelector(
+                    "#toolName"
+                ).value.trim();
 
-    const pageWidth =
-        doc.internal.pageSize.getWidth();
+            const quantity = Number(
+                document.querySelector(
+                    "#toolQuantity"
+                ).value
+            );
 
+            const description =
+                document.querySelector(
+                    "#toolDescription"
+                ).value.trim();
 
-    const pageHeight =
-        doc.internal.pageSize.getHeight();
-
-
-    const margin = 14;
-
-
-    /* --------------------------------
-       HEADER
-    -------------------------------- */
-
-    doc.setFillColor(
-        blue[0],
-        blue[1],
-        blue[2]
-    );
-
-
-    doc.rect(
-        0,
-        0,
-        pageWidth,
-        29,
-        "F"
-    );
-
-
-    doc.setTextColor(
-        255,
-        255,
-        255
-    );
-
-
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-
-    doc.setFontSize(18);
-
-
-    doc.text(
-        "HOTPOINT ENGINEERING DIVISION",
-        pageWidth / 2,
-        12,
-        {
-            align: "center"
-        }
-    );
-
-
-    doc.setFontSize(10);
-
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
-
-
-    doc.text(
-        "HVAC WORKS QUOTATION",
-        pageWidth / 2,
-        20,
-        {
-            align: "center"
-        }
-    );
-
-
-    /* --------------------------------
-       QUOTATION DATE
-    -------------------------------- */
-
-    const date =
-        new Date();
-
-
-    const dateString =
-        date.toLocaleDateString(
-            "en-GB"
-        );
-
-
-    doc.setTextColor(
-        dark[0],
-        dark[1],
-        dark[2]
-    );
-
-
-    doc.setFontSize(9);
-
-
-    doc.text(
-        `Date: ${dateString}`,
-        pageWidth - margin,
-        37,
-        {
-            align: "right"
-        }
-    );
-
-
-    let y = 44;
-
-
-    /* =================================
-       1. EQUIPMENT
-    ================================= */
-
-    addSectionHeading(
-        doc,
-        "1. EQUIPMENT",
-        y,
-        blue
-    );
-
-
-    y += 8;
-
-
-    const capacities =
-        getUniqueCapacities();
-
-
-    const equipmentRows =
-        capacities.map(capacity => {
-
-            const rooms =
-                state.rooms.filter(
-                    room =>
-                        room.acCapacity === capacity
+            if (!toolName || !description) {
+                alert(
+                    "Enter the tool name and description."
                 );
 
+                return;
+            }
 
-            const quantity =
-                rooms.length;
+            if (
+                !Number.isInteger(quantity) ||
+                quantity < 1
+            ) {
+                alert(
+                    "The quantity must be a whole number of at least 1."
+                );
 
+                return;
+            }
 
-            const price =
-                rooms[0].acPrice;
+            data.tools.push({
+                id: uid(),
+                name: toolName,
+                quantity: quantity,
+                description: description,
+                assignments: []
+            });
 
+            saveData(data);
 
-            const total =
-                quantity * price;
+            event.target.reset();
 
+            document.querySelector(
+                "#toolQuantity"
+            ).value = 1;
 
-            return [
-
-                formatCapacity(capacity),
-
-                quantity,
-
-                formatCurrencyPlain(price),
-
-                formatCurrencyPlain(total)
-
-            ];
-
+            renderAdmin();
         });
 
+    /* ASSIGN TOOL */
 
-    equipmentRows.push([
+    document
+        .querySelector("#assignmentForm")
+        .addEventListener("submit", event => {
+            event.preventDefault();
 
-        "",
+            const data = loadData();
 
-        "",
+            const selectedToolId =
+                document.querySelector(
+                    "#assignTool"
+                ).value;
 
-        "Equipment Total",
+            const technicianName =
+                document.querySelector(
+                    "#technicianName"
+                ).value.trim();
 
-        formatCurrencyPlain(
-            getEquipmentTotal()
-        )
+            const siteName =
+                document.querySelector(
+                    "#siteName"
+                ).value.trim();
 
-    ]);
+            const assignedDate =
+                assignedDateInput.value;
 
+            const tool = data.tools.find(item => {
+                return item.id === selectedToolId;
+            });
 
-    doc.autoTable({
+            if (!tool || available(tool) < 1) {
+                alert(
+                    "The selected tool is not available."
+                );
 
-        startY: y,
-
-        head: [[
-            "Description",
-            "Qty",
-            "Unit Price (KES)",
-            "Total (KES)"
-        ]],
-
-        body: equipmentRows,
-
-        theme: "grid",
-
-        headStyles: {
-            fillColor: blue,
-            textColor: 255,
-            fontStyle: "bold"
-        },
-
-        styles: {
-            fontSize: 9,
-            cellPadding: 3
-        },
-
-        columnStyles: {
-            1: {
-                halign: "center"
-            },
-
-            2: {
-                halign: "right"
-            },
-
-            3: {
-                halign: "right"
-            }
-        }
-
-    });
-
-
-    y =
-        doc.lastAutoTable.finalY + 10;
-
-
-    /* =================================
-       2. COPPER
-    ================================= */
-
-    addSectionHeading(
-        doc,
-        "2. COPPER AND ACCESSORIES",
-        y,
-        cyan
-    );
-
-
-    y += 8;
-
-
-    doc.autoTable({
-
-        startY: y,
-
-        head: [[
-            "Description",
-            "Total Length (m)",
-            "Cost / Metre (KES)",
-            "Total (KES)"
-        ]],
-
-        body: [[
-
-            "Copper & Accessories",
-
-            formatNumber(
-                getCopperTotalLength()
-            ),
-
-            formatCurrencyPlain(
-                state.copperRate
-            ),
-
-            formatCurrencyPlain(
-                getCopperCost()
-            )
-
-        ]],
-
-        theme: "grid",
-
-        headStyles: {
-            fillColor: cyan,
-            textColor: 255,
-            fontStyle: "bold"
-        },
-
-        styles: {
-            fontSize: 9,
-            cellPadding: 3
-        },
-
-        columnStyles: {
-
-            1: {
-                halign: "center"
-            },
-
-            2: {
-                halign: "right"
-            },
-
-            3: {
-                halign: "right"
+                return;
             }
 
-        }
+            if (!technicianName) {
+                alert(
+                    "Enter the technician's name."
+                );
 
-    });
-
-
-    y =
-        doc.lastAutoTable.finalY + 10;
-
-
-    /* =================================
-       3. DRAINAGE
-    ================================= */
-
-    addSectionHeading(
-        doc,
-        "3. DRAINAGE",
-        y,
-        blue
-    );
-
-
-    y += 8;
-
-
-    doc.autoTable({
-
-        startY: y,
-
-        head: [[
-            "Description",
-            "Total Length (m)",
-            "Cost / Metre (KES)",
-            "Total (KES)"
-        ]],
-
-        body: [[
-
-            "PVC Drainage & Accessories",
-
-            formatNumber(
-                getDrainageTotalLength()
-            ),
-
-            formatCurrencyPlain(
-                state.drainageRate
-            ),
-
-            formatCurrencyPlain(
-                getDrainageCost()
-            )
-
-        ]],
-
-        theme: "grid",
-
-        headStyles: {
-            fillColor: blue,
-            textColor: 255,
-            fontStyle: "bold"
-        },
-
-        styles: {
-            fontSize: 9,
-            cellPadding: 3
-        },
-
-        columnStyles: {
-
-            1: {
-                halign: "center"
-            },
-
-            2: {
-                halign: "right"
-            },
-
-            3: {
-                halign: "right"
+                return;
             }
 
-        }
+            if (!siteName) {
+                alert(
+                    "Enter the site name."
+                );
 
-    });
+                return;
+            }
 
+            if (!assignedDate) {
+                alert(
+                    "Select the date assigned."
+                );
 
-    y =
-        doc.lastAutoTable.finalY + 10;
+                return;
+            }
 
+            const allocationRecord = {
+                id: uid(),
+                toolId: tool.id,
+                toolName: tool.name,
+                technician: technicianName,
+                site: siteName,
+                assignedDate: assignedDate,
+                releasedDate: "",
+                action: "Assigned"
+            };
 
-    /* =================================
-       ADDITIONAL ITEMS
-    ================================= */
-
-    if (
-        state.otherItems.length > 0
-    ) {
-
-        addSectionHeading(
-            doc,
-            "4. ADDITIONAL ITEMS",
-            y,
-            cyan
-        );
-
-
-        y += 8;
-
-
-        const otherRows =
-            state.otherItems.map(
-                item => [
-
-                    item.name,
-
-                    `${item.quantity} ${item.unit}`,
-
-                    formatCurrencyPlain(
-                        item.unitPrice
-                    ),
-
-                    formatCurrencyPlain(
-                        item.total
-                    )
-
-                ]
+            tool.assignments.push(
+                allocationRecord
             );
 
+            data.history.push({
+                ...allocationRecord
+            });
 
-        doc.autoTable({
+            saveData(data);
 
-            startY: y,
+            event.target.reset();
 
-            head: [[
-                "Description",
-                "Quantity",
-                "Unit Price (KES)",
-                "Total (KES)"
-            ]],
+            assignedDateInput.value = today();
 
-            body: otherRows,
-
-            theme: "grid",
-
-            headStyles: {
-                fillColor: cyan,
-                textColor: 255,
-                fontStyle: "bold"
-            },
-
-            styles: {
-                fontSize: 9,
-                cellPadding: 3
-            },
-
-            columnStyles: {
-
-                2: {
-                    halign: "right"
-                },
-
-                3: {
-                    halign: "right"
-                }
-
-            }
-
+            renderAdmin();
         });
 
+    /* INVENTORY ACTIONS */
 
-        y =
-            doc.lastAutoTable.finalY + 10;
+    document
+        .querySelector("#adminInventory")
+        .addEventListener("click", event => {
+            const button = event.target.closest(
+                "button[data-action]"
+            );
 
-    }
-
-
-    /* =================================
-       TOTAL HVAC WORKS
-    ================================= */
-
-    const hvac =
-        getTotalHVACWorks();
-
-
-    const exclusive =
-        getExclusiveSummaryTotal();
-
-
-    const vat =
-        getVAT();
-
-
-    const inclusive =
-        getInclusiveTotal();
-
-
-    /* Check page space */
-
-    if (
-        y > pageHeight - 90
-    ) {
-
-        doc.addPage();
-
-        y = 20;
-
-    }
-
-
-    addSectionHeading(
-        doc,
-        "TOTAL HVAC WORKS",
-        y,
-        dark
-    );
-
-
-    y += 9;
-
-
-    doc.setFillColor(
-        light[0],
-        light[1],
-        light[2]
-    );
-
-
-    doc.rect(
-        margin,
-        y,
-        pageWidth - margin * 2,
-        12,
-        "F"
-    );
-
-
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-
-    doc.setFontSize(12);
-
-
-    doc.setTextColor(
-        dark[0],
-        dark[1],
-        dark[2]
-    );
-
-
-    doc.text(
-        "Total HVAC Works - Exclusive of VAT",
-        margin + 4,
-        y + 8
-    );
-
-
-    doc.text(
-        formatCurrencyPlain(hvac),
-        pageWidth - margin - 4,
-        y + 8,
-        {
-            align: "right"
-        }
-    );
-
-
-    y += 20;
-
-
-    /* =================================
-       SUMMARY
-    ================================= */
-
-    addSectionHeading(
-        doc,
-        "SUMMARY",
-        y,
-        blue
-    );
-
-
-    y += 8;
-
-
-    const summaryRows = [
-
-        [
-            "Preliminaries",
-            "1 Lot",
-            "15,000.00"
-        ],
-
-        [
-            "As Built Drawing",
-            "1 Lot",
-            "5,000.00"
-        ],
-
-        [
-            "Total HVAC Works",
-            "1 Lot",
-            formatCurrencyPlain(hvac)
-        ]
-
-    ];
-
-
-    doc.autoTable({
-
-        startY: y,
-
-        head: [[
-            "Description",
-            "Quantity",
-            "Total (KES)"
-        ]],
-
-        body: summaryRows,
-
-        theme: "grid",
-
-        headStyles: {
-            fillColor: blue,
-            textColor: 255,
-            fontStyle: "bold"
-        },
-
-        styles: {
-            fontSize: 9,
-            cellPadding: 3
-        },
-
-        columnStyles: {
-
-            1: {
-                halign: "center"
-            },
-
-            2: {
-                halign: "right"
+            if (!button) {
+                return;
             }
 
-        }
+            const data = loadData();
 
+            const tool = data.tools.find(item => {
+                return item.id ===
+                    button.dataset.tool;
+            });
+
+            if (!tool) {
+                return;
+            }
+
+            const action = button.dataset.action;
+
+            /* OPEN TRANSFER FORM */
+
+            if (action === "transfer") {
+                const assignment =
+                    tool.assignments.find(item => {
+                        return (
+                            item.id ===
+                            button.dataset.assignment
+                        );
+                    });
+
+                if (!assignment) {
+                    return;
+                }
+
+                document.querySelector(
+                    "#transferToolId"
+                ).value = tool.id;
+
+                document.querySelector(
+                    "#transferAssignmentId"
+                ).value = assignment.id;
+
+                document.querySelector(
+                    "#transferDate"
+                ).value = today();
+
+                document.querySelector(
+                    "#transferSummary"
+                ).textContent =
+                    `Transfer ${tool.name} from ` +
+                    `${assignment.technician} at ` +
+                    `${assignment.site}.`;
+
+                transferModal.hidden = false;
+
+                document.body.classList.add(
+                    "modal-open"
+                );
+
+                document.querySelector(
+                    "#transferTechnician"
+                ).focus();
+
+                return;
+            }
+
+            /* REMOVE TOOL */
+
+            if (action === "remove") {
+                if (tool.assignments.length > 0) {
+                    alert(
+                        "Release all allocated units before removing this tool."
+                    );
+
+                    return;
+                }
+
+                const shouldRemove = confirm(
+                    `Remove ${tool.name} from inventory?`
+                );
+
+                if (!shouldRemove) {
+                    return;
+                }
+
+                data.tools = data.tools.filter(item => {
+                    return item.id !== tool.id;
+                });
+            }
+
+            /* UPDATE QUANTITY */
+
+            if (action === "save") {
+                const quantityInput =
+                    document.querySelector(
+                        `[data-quantity="${tool.id}"]`
+                    );
+
+                const newQuantity =
+                    Number(quantityInput.value);
+
+                const minimumQuantity =
+                    Math.max(
+                        1,
+                        tool.assignments.length
+                    );
+
+                if (
+                    !Number.isInteger(newQuantity) ||
+                    newQuantity < minimumQuantity
+                ) {
+                    alert(
+                        `Quantity must be a whole number and cannot be below ${minimumQuantity}.`
+                    );
+
+                    quantityInput.value =
+                        tool.quantity;
+
+                    return;
+                }
+
+                tool.quantity = newQuantity;
+            }
+
+            /* RELEASE TOOL */
+
+            if (action === "release") {
+                const assignment =
+                    tool.assignments.find(item => {
+                        return (
+                            item.id ===
+                            button.dataset.assignment
+                        );
+                    });
+
+                if (!assignment) {
+                    return;
+                }
+
+                const shouldRelease = confirm(
+                    `Release ${tool.name} from ${assignment.technician}?`
+                );
+
+                if (!shouldRelease) {
+                    return;
+                }
+
+                tool.assignments =
+                    tool.assignments.filter(item => {
+                        return (
+                            item.id !== assignment.id
+                        );
+                    });
+
+                const historyRecord =
+                    data.history.find(record => {
+                        return (
+                            record.id ===
+                            assignment.id
+                        );
+                    });
+
+                if (historyRecord) {
+                    historyRecord.releasedDate =
+                        today();
+
+                    historyRecord.action =
+                        "Released";
+                }
+            }
+
+            saveData(data);
+            renderAdmin();
+        });
+
+    /* CONFIRM TRANSFER */
+
+    document
+        .querySelector("#transferForm")
+        .addEventListener("submit", event => {
+            event.preventDefault();
+
+            const data = loadData();
+
+            const toolId =
+                document.querySelector(
+                    "#transferToolId"
+                ).value;
+
+            const oldAssignmentId =
+                document.querySelector(
+                    "#transferAssignmentId"
+                ).value;
+
+            const newTechnician =
+                document.querySelector(
+                    "#transferTechnician"
+                ).value.trim();
+
+            const newSite =
+                document.querySelector(
+                    "#transferSite"
+                ).value.trim();
+
+            const transferDate =
+                document.querySelector(
+                    "#transferDate"
+                ).value;
+
+            const tool = data.tools.find(item => {
+                return item.id === toolId;
+            });
+
+            if (!tool) {
+                alert("The selected tool was not found.");
+                return;
+            }
+
+            const oldAssignment =
+                tool.assignments.find(item => {
+                    return item.id ===
+                        oldAssignmentId;
+                });
+
+            if (!oldAssignment) {
+                alert(
+                    "The original allocation was not found."
+                );
+
+                return;
+            }
+
+            if (!newTechnician) {
+                alert(
+                    "Enter the new technician's name."
+                );
+
+                return;
+            }
+
+            if (!newSite) {
+                alert(
+                    "Enter the new site name."
+                );
+
+                return;
+            }
+
+            if (!transferDate) {
+                alert(
+                    "Select the transfer date."
+                );
+
+                return;
+            }
+
+            /*
+             * Remove the old active allocation.
+             */
+
+            tool.assignments =
+                tool.assignments.filter(item => {
+                    return (
+                        item.id !== oldAssignmentId
+                    );
+                });
+
+            /*
+             * Close the old technician's history record.
+             */
+
+            const oldHistoryRecord =
+                data.history.find(record => {
+                    return (
+                        record.id ===
+                        oldAssignmentId
+                    );
+                });
+
+            if (oldHistoryRecord) {
+                oldHistoryRecord.releasedDate =
+                    transferDate;
+
+                oldHistoryRecord.action =
+                    `Transferred to ${newTechnician} — ${newSite}`;
+            }
+
+            /*
+             * Create a new active allocation for the
+             * receiving technician and site.
+             */
+
+            const newAssignment = {
+                id: uid(),
+                toolId: tool.id,
+                toolName: tool.name,
+                technician: newTechnician,
+                site: newSite,
+                assignedDate: transferDate,
+                releasedDate: "",
+                action:
+                    `Transferred from ` +
+                    `${oldAssignment.technician} — ` +
+                    `${oldAssignment.site}`
+            };
+
+            tool.assignments.push(newAssignment);
+
+            data.history.push({
+                ...newAssignment
+            });
+
+            saveData(data);
+
+            closeTransferModal();
+            renderAdmin();
+        });
+
+    /* CLOSE TRANSFER FORM */
+
+    transferModal.addEventListener(
+        "click",
+        event => {
+            if (
+                event.target.matches(
+                    "[data-close-transfer]"
+                )
+            ) {
+                closeTransferModal();
+            }
+        }
+    );
+
+    document.addEventListener(
+        "keydown",
+        event => {
+            if (
+                event.key === "Escape" &&
+                !transferModal.hidden
+            ) {
+                closeTransferModal();
+            }
+        }
+    );
+
+    window.addEventListener(
+        "storage",
+        renderAdmin
+    );
+}
+
+/* =========================================================
+   RENDER ADMIN INVENTORY
+   ========================================================= */
+
+function renderAdmin() {
+    const data = loadData();
+
+    const toolSelect =
+        document.querySelector("#assignTool");
+
+    if (!toolSelect) {
+        return;
+    }
+
+    const availableTools = data.tools.filter(tool => {
+        return available(tool) > 0;
     });
 
+    if (availableTools.length > 0) {
+        toolSelect.innerHTML = availableTools
+            .map(tool => {
+                return `
+                    <option value="${tool.id}">
+                        ${escapeHTML(tool.name)}
+                        (${available(tool)} free)
+                    </option>
+                `;
+            })
+            .join("");
+    } else {
+        toolSelect.innerHTML = `
+            <option value="">
+                No tools available
+            </option>
+        `;
+    }
 
-    y =
-        doc.lastAutoTable.finalY + 8;
+    document.querySelector(
+        "#assignBtn"
+    ).disabled = availableTools.length === 0;
 
+    const inventoryContainer =
+        document.querySelector("#adminInventory");
 
-    /* =================================
-       VAT SUMMARY
-    ================================= */
+    if (data.tools.length === 0) {
+        inventoryContainer.innerHTML = `
+            <div class="empty">
+                No tools are currently in inventory.
+                Add the first tool above.
+            </div>
+        `;
 
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
+        return;
+    }
 
+    inventoryContainer.innerHTML = data.tools
+        .map(tool => {
+            const currentAssignments =
+                tool.assignments.length > 0
+                    ? `
+                        <div class="current-list">
+                            ${tool.assignments
+                                .map(assignment => {
+                                    return `
+                                        <div class="current-item">
+                                            <div class="assignment-person">
+                                                <strong>
+                                                    ${escapeHTML(
+                                                        assignment.technician
+                                                    )}
+                                                </strong>
 
-    doc.setFontSize(10);
+                                                <small>
+                                                    ${escapeHTML(
+                                                        assignment.site
+                                                    )}
+                                                    • Assigned
+                                                    ${prettyDate(
+                                                        assignment.assignedDate
+                                                    )}
+                                                </small>
+                                            </div>
 
+                                            <div class="current-actions">
+                                                <button
+                                                    class="transfer-button"
+                                                    data-action="transfer"
+                                                    data-tool="${tool.id}"
+                                                    data-assignment="${assignment.id}"
+                                                >
+                                                    Transfer
+                                                </button>
 
-    doc.text(
-        "Total Exclusive of VAT:",
-        pageWidth - 85,
-        y
-    );
+                                                <button
+                                                    data-action="release"
+                                                    data-tool="${tool.id}"
+                                                    data-assignment="${assignment.id}"
+                                                >
+                                                    Release
+                                                </button>
+                                            </div>
+                                        </div>
+                                    `;
+                                })
+                                .join("")}
+                        </div>
+                    `
+                    : "";
 
+            return `
+                <article class="inventory-row">
+                    <div class="inventory-head">
+                        <div>
+                            <h2>
+                                ${escapeHTML(tool.name)}
+                            </h2>
 
-    doc.text(
-        formatCurrencyPlain(exclusive),
-        pageWidth - margin,
-        y,
-        {
-            align: "right"
-        }
-    );
+                            <p>
+                                ${escapeHTML(tool.description)}
+                                •
+                                ${available(tool)}
+                                of
+                                ${tool.quantity}
+                                available
+                            </p>
+                        </div>
 
+                        <label>
+                            Quantity
 
-    y += 7;
+                            <input
+                                data-quantity="${tool.id}"
+                                type="number"
+                                min="${Math.max(
+                                    1,
+                                    tool.assignments.length
+                                )}"
+                                step="1"
+                                value="${tool.quantity}"
+                            >
+                        </label>
 
+                        <div class="inventory-actions">
+                            <button
+                                data-action="save"
+                                data-tool="${tool.id}"
+                            >
+                                Save
+                            </button>
 
-    doc.text(
-        "VAT @ 16%:",
-        pageWidth - 85,
-        y
-    );
+                            <button
+                                class="danger-button"
+                                data-action="remove"
+                                data-tool="${tool.id}"
+                            >
+                                Remove
+                            </button>
+                        </div>
+                    </div>
 
-
-    doc.text(
-        formatCurrencyPlain(vat),
-        pageWidth - margin,
-        y,
-        {
-            align: "right"
-        }
-    );
-
-
-    y += 10;
-
-
-    /* =================================
-       GRAND TOTAL
-    ================================= */
-
-    doc.setFillColor(
-        blue[0],
-        blue[1],
-        blue[2]
-    );
-
-
-    doc.rect(
-        margin,
-        y,
-        pageWidth - margin * 2,
-        15,
-        "F"
-    );
-
-
-    doc.setTextColor(
-        255,
-        255,
-        255
-    );
-
-
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-
-    doc.setFontSize(12);
-
-
-    doc.text(
-        "NEW TOTAL INCLUSIVE OF VAT",
-        margin + 4,
-        y + 10
-    );
-
-
-    doc.text(
-        formatCurrencyPlain(inclusive),
-        pageWidth - margin - 4,
-        y + 10,
-        {
-            align: "right"
-        }
-    );
-
-
-    /* =================================
-       FOOTER
-    ================================= */
-
-    doc.setTextColor(
-        100,
-        100,
-        100
-    );
-
-
-    doc.setFont(
-        "helvetica",
-        "normal"
-    );
-
-
-    doc.setFontSize(8);
-
-
-    doc.text(
-        "Prepared by Moses Ntella Taa",
-        pageWidth / 2,
-        pageHeight - 15,
-        {
-            align: "center"
-        }
-    );
-
-
-    doc.text(
-        "hvacmsaintern@hotpoint.co.ke",
-        pageWidth / 2,
-        pageHeight - 10,
-        {
-            align: "center"
-        }
-    );
-
-
-    /* =================================
-       SAVE
-    ================================= */
-
-    const fileName =
-        `Onsite_HVAC_Quotation_${getDateForFile()}.pdf`;
-
-
-    doc.save(fileName);
-
+                    ${currentAssignments}
+                </article>
+            `;
+        })
+        .join("");
 }
 
+/* =========================================================
+   START THE CORRECT PAGE
+   ========================================================= */
 
-/* ============================================================
-   PDF SECTION HEADING
-============================================================ */
-
-function addSectionHeading(
-    doc,
-    text,
-    y,
-    color
-) {
-
-    doc.setFillColor(
-        color[0],
-        color[1],
-        color[2]
-    );
-
-
-    doc.rect(
-        14,
-        y - 5,
-        182,
-        8,
-        "F"
-    );
-
-
-    doc.setTextColor(
-        255,
-        255,
-        255
-    );
-
-
-    doc.setFont(
-        "helvetica",
-        "bold"
-    );
-
-
-    doc.setFontSize(10);
-
-
-    doc.text(
-        text,
-        18,
-        y + 0.5
-    );
-
+if (document.body.dataset.page === "request") {
+    initRequest();
 }
 
-
-/* ============================================================
-   FORMATTING
-============================================================ */
-
-function formatNumber(value) {
-
-    return Number(
-        value || 0
-    ).toLocaleString(
-        "en-KE",
-        {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        }
-    );
-
-}
-
-
-function formatCurrency(value) {
-
-    return `KES ${formatNumber(value)}`;
-
-}
-
-
-function formatCurrencyPlain(value) {
-
-    return formatNumber(value);
-
-}
-
-
-function formatCapacity(capacity) {
-
-    return `${Number(capacity).toLocaleString()} BTU/h`;
-
-}
-
-
-function getDateForFile() {
-
-    const date =
-        new Date();
-
-
-    const year =
-        date.getFullYear();
-
-
-    const month =
-        String(
-            date.getMonth() + 1
-        ).padStart(2, "0");
-
-
-    const day =
-        String(
-            date.getDate()
-        ).padStart(2, "0");
-
-
-    return `${year}-${month}-${day}`;
-
-}
-
-
-/* ============================================================
-   SECURITY / HTML ESCAPING
-============================================================ */
-
-function escapeHTML(value) {
-
-    return String(value)
-        .replace(
-            /&/g,
-            "&amp;"
-        )
-        .replace(
-            /</g,
-            "&lt;"
-        )
-        .replace(
-            />/g,
-            "&gt;"
-        )
-        .replace(
-            /"/g,
-            "&quot;"
-        )
-        .replace(
-            /'/g,
-            "&#039;"
-        );
-
+if (document.body.dataset.page === "admin") {
+    initAdmin();
 }
