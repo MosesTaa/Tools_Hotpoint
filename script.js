@@ -1,80 +1,27 @@
 "use strict";
 
-/* =========================================================
-   HOTPOINT TOOLS TRACKER
-   ========================================================= */
+const URL =
+    "https://ncylczvijvdaiaamhmwk.supabase.co";
 
-const STORAGE_KEY = "hotpointToolsTrackerV1";
-const ADMIN_USER = "ADMIN";
-const ADMIN_PASSWORD = "Hotpoint_tools";
+const KEY =
+    "sb_publishable_hNUwSYtyf0jU7ARbvai3gw_1xbNlyMe";
 
-/* =========================================================
-   DEFAULT TOOLS
-   ========================================================= */
+const ADMIN_EMAIL =
+    "mosesntella2018@gmail.com";
 
-const seedTools = [
-    {
-        name: "Ladders",
-        quantity: 2,
-        description:
-            "Access ladders for installation and service work."
-    },
-    {
-        name: "Flaring Kit",
-        quantity: 2,
-        description:
-            "Copper pipe flaring tools and accessories."
-    },
-    {
-        name: "Oxy/Acetylene Gauge",
-        quantity: 1,
-        description:
-            "Gauge set for controlled oxy-acetylene work."
-    },
-    {
-        name: "Grinder",
-        quantity: 2,
-        description:
-            "Portable angle grinder for workshop and site tasks."
-    },
-    {
-        name: "Scaffolding",
-        quantity: 1,
-        description:
-            "Mobile scaffolding set for elevated work."
-    }
-];
+const ADMIN_USERNAME = "ADMIN";
+const ADMIN_PASSWORD = "Hotpoint_Tools";
 
-/* =========================================================
-   GENERAL FUNCTIONS
-   ========================================================= */
+let token =
+    localStorage.getItem("hp_access") || "";
 
-function uid() {
-    return (
-        Date.now().toString(36) +
-        Math.random().toString(36).slice(2, 8)
-    );
-}
+let tools = [];
+let history = [];
 
-function today() {
-    return new Date().toISOString().slice(0, 10);
-}
+const $ = selector =>
+    document.querySelector(selector);
 
-function prettyDate(value) {
-    if (!value) {
-        return "—";
-    }
-
-    return new Date(
-        `${value}T00:00:00`
-    ).toLocaleDateString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric"
-    });
-}
-
-function escapeHTML(value) {
+const escapeHTML = value => {
     return String(value ?? "").replace(
         /[&<>'"]/g,
         character => {
@@ -87,1194 +34,1141 @@ function escapeHTML(value) {
             }[character];
         }
     );
+};
+
+const formatDate = value => {
+    if (!value) {
+        return "—";
+    }
+
+    return new Date(
+        `${value}T00:00:00`
+    ).toLocaleDateString("en-GB");
+};
+
+const today = () =>
+    new Date().toISOString().slice(0, 10);
+
+function createHeaders(admin = false) {
+    return {
+        apikey: KEY,
+
+        Authorization:
+            `Bearer ${
+                admin && token
+                    ? token
+                    : KEY
+            }`,
+
+        "Content-Type": "application/json"
+    };
 }
 
-/* =========================================================
-   STORAGE
-   ========================================================= */
+function showMessage(text, type = "ok") {
+    const message = $("#message");
 
-function normalizeData(data) {
-    data.tools.forEach(tool => {
-        tool.assignments.forEach(assignment => {
-            assignment.site =
-                assignment.site || "Not recorded";
+    message.textContent = text;
+    message.className = type;
 
-            assignment.action =
-                assignment.action || "Assigned";
-        });
-    });
-
-    data.history.forEach(record => {
-        record.site =
-            record.site || "Not recorded";
-
-        record.action =
-            record.action || "Assigned";
-    });
-
-    return data;
+    setTimeout(() => {
+        message.textContent = "";
+        message.className = "";
+    }, 4500);
 }
 
-function loadData() {
-    try {
-        const savedData = JSON.parse(
-            localStorage.getItem(STORAGE_KEY)
-        );
+/*
+ * Sends requests to Supabase.
+ * Empty successful responses are handled without
+ * attempting to parse missing JSON.
+ */
 
-        if (
-            savedData &&
-            Array.isArray(savedData.tools) &&
-            Array.isArray(savedData.history)
-        ) {
-            return normalizeData(savedData);
+async function api(path, options = {}) {
+    const response = await fetch(
+        URL + path,
+        {
+            ...options,
+
+            headers: {
+                ...createHeaders(options.admin),
+                ...(options.headers || {})
+            }
         }
-    } catch (error) {
-        console.error(
-            "Unable to load saved tool records:",
-            error
+    );
+
+    if (
+        response.status === 401 &&
+        options.admin
+    ) {
+        token = "";
+
+        localStorage.removeItem("hp_access");
+
+        showAuthentication();
+    }
+
+    const responseText =
+        await response.text();
+
+    let responseData = null;
+
+    if (responseText) {
+        try {
+            responseData =
+                JSON.parse(responseText);
+        } catch (error) {
+            responseData = responseText;
+        }
+    }
+
+    if (!response.ok) {
+        const errorData =
+            responseData &&
+            typeof responseData === "object"
+                ? responseData
+                : {};
+
+        throw new Error(
+            errorData.message ||
+            errorData.error_description ||
+            errorData.details ||
+            `Request failed (${response.status})`
         );
     }
 
-    const initialData = {
-        tools: seedTools.map(tool => ({
-            ...tool,
-            id: uid(),
-            assignments: []
-        })),
-
-        history: []
-    };
-
-    saveData(initialData);
-
-    return initialData;
+    return responseData;
 }
 
-function saveData(data) {
-    localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(data)
+async function loadData() {
+    try {
+        const responses =
+            await Promise.all([
+                api(
+                    "/rest/v1/tools" +
+                    "?select=*" +
+                    "&order=name"
+                ),
+
+                api(
+                    "/rest/v1/tool_history" +
+                    "?select=*" +
+                    "&order=assigned_on.desc,created_at.desc"
+                )
+            ]);
+
+        tools = responses[0] || [];
+        history = responses[1] || [];
+
+        localStorage.setItem(
+            "hp_cache",
+            JSON.stringify({
+                tools,
+                history
+            })
+        );
+
+        renderApplication();
+    } catch (error) {
+        const cachedData = JSON.parse(
+            localStorage.getItem(
+                "hp_cache"
+            ) || "null"
+        );
+
+        if (cachedData) {
+            tools = cachedData.tools || [];
+            history = cachedData.history || [];
+
+            renderApplication();
+
+            showMessage(
+                "Offline: showing the last synchronized records.",
+                "error"
+            );
+        } else {
+            showMessage(
+                error.message,
+                "error"
+            );
+        }
+    }
+}
+
+function getActiveAllocations() {
+    return history.filter(record => {
+        return !record.ended_on;
+    });
+}
+
+function renderApplication() {
+    const allocations =
+        getActiveAllocations();
+
+    const searchText =
+        $("#search").value.toLowerCase();
+
+    const totalUnits = tools.reduce(
+        (total, tool) => {
+            return total + tool.quantity;
+        },
+        0
     );
 
-    window.dispatchEvent(
-        new Event("tracker-updated")
+    $("#total").textContent =
+        totalUnits;
+
+    $("#out").textContent =
+        allocations.length;
+
+    $("#free").textContent =
+        Math.max(
+            0,
+            totalUnits - allocations.length
+        );
+
+    renderPublicTools(
+        allocations,
+        searchText
     );
+
+    renderHistory();
+
+    renderToolOptions(allocations);
+
+    renderActiveAllocations(allocations);
+
+    renderToolManagement(allocations);
 }
 
-function available(tool) {
-    return Math.max(
-        0,
-        tool.quantity - tool.assignments.length
-    );
-}
-
-function statusChip(text, type) {
-    return `
-        <span class="status ${type}">
-            ${escapeHTML(text)}
-        </span>
-    `;
-}
-
-/* =========================================================
-   REQUEST TOOL PAGE
-   ========================================================= */
-
-function initRequest() {
-    const searchInput =
-        document.querySelector("#toolSearch");
-
-    const historyFilter =
-        document.querySelector("#historyFilter");
-
-    function renderRequestPage() {
-        const data = loadData();
-
-        const searchText = searchInput.value
-            .trim()
-            .toLowerCase();
-
-        const displayedTools = data.tools.filter(tool => {
-            const assignments = tool.assignments
-                .map(assignment => {
-                    return `
-                        ${assignment.technician}
-                        ${assignment.site}
-                    `;
-                })
-                .join(" ");
+function renderPublicTools(
+    allocations,
+    searchText
+) {
+    const matchingTools =
+        tools.filter(tool => {
+            const toolAllocations =
+                allocations.filter(record => {
+                    return (
+                        record.tool_id ===
+                        tool.id
+                    );
+                });
 
             const searchableText = `
                 ${tool.name}
                 ${tool.description}
-                ${assignments}
+                ${toolAllocations
+                    .map(record => {
+                        return (
+                            record.technician +
+                            " " +
+                            record.site
+                        );
+                    })
+                    .join(" ")}
             `.toLowerCase();
 
-            return searchableText.includes(searchText);
+            return searchableText.includes(
+                searchText
+            );
         });
 
-        renderSummary(data);
-        renderTools(displayedTools);
-        renderTechnicianFilter(data);
-        renderHistory(data);
-    }
+    $("#tools").innerHTML =
+        matchingTools.map(tool => {
+            const toolAllocations =
+                allocations.filter(record => {
+                    return (
+                        record.tool_id ===
+                        tool.id
+                    );
+                });
 
-    function renderSummary(data) {
-        const totalUnits = data.tools.reduce(
-            (total, tool) => {
-                return total + tool.quantity;
-            },
-            0
-        );
-
-        const availableUnits = data.tools.reduce(
-            (total, tool) => {
-                return total + available(tool);
-            },
-            0
-        );
-
-        const allocatedUnits = data.tools.reduce(
-            (total, tool) => {
-                return total + tool.assignments.length;
-            },
-            0
-        );
-
-        document.querySelector(
-            "#totalUnits"
-        ).textContent = totalUnits;
-
-        document.querySelector(
-            "#availableUnits"
-        ).textContent = availableUnits;
-
-        document.querySelector(
-            "#allocatedUnits"
-        ).textContent = allocatedUnits;
-    }
-
-    function renderTools(tools) {
-        const toolGrid =
-            document.querySelector("#toolGrid");
-
-        toolGrid.innerHTML = tools
-            .map(tool => {
-                const freeUnits = available(tool);
-
-                const status =
-                    freeUnits > 0
-                        ? statusChip(
-                            "AVAILABLE",
-                            "free"
-                        )
-                        : statusChip(
-                            "FULLY ALLOCATED",
-                            "busy"
-                        );
-
-                const allocationList =
-                    tool.assignments.length > 0
-                        ? `
-                            <div class="assignments">
-                                ${tool.assignments
-                                    .map(assignment => {
-                                        return `
-                                            <div class="assignment-line">
-                                                <span class="assignment-person">
-                                                    <strong>
-                                                        ${escapeHTML(
-                                                            assignment.technician
-                                                        )}
-                                                    </strong>
-
-                                                    <small>
-                                                        ${escapeHTML(
-                                                            assignment.site
-                                                        )}
-                                                    </small>
-                                                </span>
-
-                                                <span>
-                                                    ${prettyDate(
-                                                        assignment.assignedDate
-                                                    )}
-                                                </span>
-                                            </div>
-                                        `;
-                                    })
-                                    .join("")}
-                            </div>
-                        `
-                        : "";
-
-                return `
-                    <article class="tool-card">
-                        <div class="tool-title">
-                            <h2>
-                                ${escapeHTML(tool.name)}
-                            </h2>
-
-                            ${status}
-                        </div>
-
-                        <p class="description">
-                            ${escapeHTML(tool.description)}
-                        </p>
-
-                        <div class="availability">
-                            <div>
-                                <span>Total</span>
-                                <strong>
-                                    ${tool.quantity}
-                                </strong>
-                            </div>
-
-                            <div>
-                                <span>Free</span>
-                                <strong>
-                                    ${freeUnits}
-                                </strong>
-                            </div>
-
-                            <div>
-                                <span>Out</span>
-                                <strong>
-                                    ${tool.assignments.length}
-                                </strong>
-                            </div>
-                        </div>
-
-                        ${allocationList}
-                    </article>
-                `;
-            })
-            .join("");
-
-        document.querySelector(
-            "#emptyTools"
-        ).hidden = tools.length !== 0;
-    }
-
-    function renderTechnicianFilter(data) {
-        const technicianNames = [
-            ...new Set(
-                data.history.map(record => {
-                    return record.technician;
-                })
-            )
-        ].sort();
-
-        const selectedTechnician =
-            historyFilter.value;
-
-        historyFilter.innerHTML = `
-            <option value="">
-                All technicians
-            </option>
-
-            ${technicianNames
-                .map(name => {
-                    return `
-                        <option
-                            value="${escapeHTML(name)}"
-                            ${
-                                name === selectedTechnician
-                                    ? "selected"
-                                    : ""
-                            }
-                        >
-                            ${escapeHTML(name)}
-                        </option>
-                    `;
-                })
-                .join("")}
-        `;
-    }
-
-    function renderHistory(data) {
-        const selectedTechnician =
-            historyFilter.value;
-
-        const history = data.history
-            .filter(record => {
-                return (
-                    !selectedTechnician ||
-                    record.technician ===
-                        selectedTechnician
+            const availableQuantity =
+                Math.max(
+                    0,
+                    tool.quantity -
+                    toolAllocations.length
                 );
-            })
-            .sort((firstRecord, secondRecord) => {
-                return secondRecord.assignedDate.localeCompare(
-                    firstRecord.assignedDate
+
+            return `
+                <article class="tool">
+                    <h3>
+                        ${escapeHTML(tool.name)}
+                    </h3>
+
+                    <small>
+                        ${escapeHTML(
+                            tool.description
+                        )}
+                    </small>
+
+                    <div class="counts">
+                        <span>
+                            Total: ${tool.quantity}
+                        </span>
+
+                        <span>
+                            Free: ${availableQuantity}
+                        </span>
+
+                        <span>
+                            Out: ${toolAllocations.length}
+                        </span>
+                    </div>
+
+                    ${toolAllocations
+                        .map(record => {
+                            return `
+                                <div class="holder">
+                                    <b>
+                                        ${escapeHTML(
+                                            record.technician
+                                        )}
+                                    </b>
+
+                                    <br>
+
+                                    <small>
+                                        ${escapeHTML(
+                                            record.site
+                                        )}
+                                        •
+                                        ${formatDate(
+                                            record.assigned_on
+                                        )}
+                                    </small>
+                                </div>
+                            `;
+                        })
+                        .join("")}
+                </article>
+            `;
+        }).join("") ||
+        "No matching tools.";
+}
+
+function renderHistory() {
+    $("#history").innerHTML =
+        history.map(record => {
+            const tool = tools.find(item => {
+                return (
+                    item.id === record.tool_id
                 );
             });
 
-        document.querySelector(
-            "#historyBody"
-        ).innerHTML = history
-            .map(record => {
-                const status = record.releasedDate
-                    ? statusChip(
-                        "Released / transferred",
-                        "free"
-                    )
-                    : statusChip(
-                        "Allocated",
-                        "busy"
+            return `
+                <tr>
+                    <td>
+                        ${escapeHTML(
+                            record.technician
+                        )}
+                    </td>
+
+                    <td>
+                        ${escapeHTML(record.site)}
+                    </td>
+
+                    <td>
+                        ${escapeHTML(
+                            tool?.name ||
+                            "Removed tool"
+                        )}
+                    </td>
+
+                    <td>
+                        ${formatDate(
+                            record.assigned_on
+                        )}
+                    </td>
+
+                    <td>
+                        ${formatDate(
+                            record.ended_on
+                        )}
+                    </td>
+
+                    <td>
+                        ${escapeHTML(
+                            record.action
+                        )}
+                    </td>
+                </tr>
+            `;
+        }).join("");
+}
+
+function renderToolOptions(allocations) {
+    const availableTools =
+        tools.filter(tool => {
+            const allocationCount =
+                allocations.filter(record => {
+                    return (
+                        record.tool_id ===
+                        tool.id
                     );
+                }).length;
 
-                return `
-                    <tr>
-                        <td>
-                            ${escapeHTML(record.technician)}
-                        </td>
+            return (
+                allocationCount <
+                tool.quantity
+            );
+        });
 
-                        <td>
-                            ${escapeHTML(record.site)}
-                        </td>
+    $("#toolSelect").innerHTML =
+        availableTools.map(tool => {
+            return `
+                <option value="${tool.id}">
+                    ${escapeHTML(tool.name)}
+                </option>
+            `;
+        }).join("");
+}
 
-                        <td>
-                            ${escapeHTML(record.toolName)}
-                        </td>
+function renderActiveAllocations(
+    allocations
+) {
+    $("#active").innerHTML =
+        allocations.map(record => {
+            const tool = tools.find(item => {
+                return (
+                    item.id ===
+                    record.tool_id
+                );
+            });
 
-                        <td>
-                            ${prettyDate(record.assignedDate)}
-                        </td>
+            return `
+                <div class="allocation">
+                    <span>
+                        <b>
+                            ${escapeHTML(
+                                tool?.name ||
+                                "Tool"
+                            )}
+                        </b>
 
-                        <td>
-                            ${prettyDate(record.releasedDate)}
-                        </td>
+                        <br>
 
-                        <td>
-                            ${escapeHTML(record.action)}
-                        </td>
+                        ${escapeHTML(
+                            record.technician
+                        )}
+                        •
+                        ${escapeHTML(record.site)}
+                        •
+                        ${formatDate(
+                            record.assigned_on
+                        )}
+                    </span>
 
-                        <td>
-                            ${status}
-                        </td>
-                    </tr>
-                `;
-            })
-            .join("");
+                    <div class="actions">
+                        <button
+                            data-transfer="${record.id}"
+                        >
+                            Transfer
+                        </button>
 
-        document.querySelector(
-            "#emptyHistory"
-        ).hidden = history.length !== 0;
-    }
-
-    searchInput.addEventListener(
-        "input",
-        renderRequestPage
-    );
-
-    historyFilter.addEventListener(
-        "change",
-        renderRequestPage
-    );
-
-    window.addEventListener(
-        "storage",
-        renderRequestPage
-    );
-
-    window.addEventListener(
-        "tracker-updated",
-        renderRequestPage
-    );
-
-    renderRequestPage();
+                        <button
+                            class="dark"
+                            data-release="${record.id}"
+                        >
+                            Release
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join("") ||
+        "No tools are currently allocated.";
 }
 
 /* =========================================================
-   ADMIN PAGE
+   MANAGE TOOLS
    ========================================================= */
 
-function initAdmin() {
-    const loginPanel =
-        document.querySelector("#loginPanel");
+function renderToolManagement(
+    allocations
+) {
+    $("#manageTools").innerHTML =
+        tools.map(tool => {
+            const allocatedQuantity =
+                allocations.filter(record => {
+                    return (
+                        record.tool_id ===
+                        tool.id
+                    );
+                }).length;
 
-    const adminPanel =
-        document.querySelector("#adminPanel");
-
-    const assignedDateInput =
-        document.querySelector("#assignedDate");
-
-    const transferModal =
-        document.querySelector("#transferModal");
-
-    assignedDateInput.value = today();
-
-    function showAdminPanel() {
-        loginPanel.hidden = true;
-        adminPanel.hidden = false;
-
-        renderAdmin();
-    }
-
-    function closeTransferModal() {
-        transferModal.hidden = true;
-
-        document.body.classList.remove(
-            "modal-open"
-        );
-
-        document
-            .querySelector("#transferForm")
-            .reset();
-    }
-
-    if (
-        sessionStorage.getItem("hotpointAdmin") === "yes"
-    ) {
-        showAdminPanel();
-    }
-
-    /* ADMIN LOGIN */
-
-    document
-        .querySelector("#loginForm")
-        .addEventListener("submit", event => {
-            event.preventDefault();
-
-            const username =
-                document.querySelector(
-                    "#username"
-                ).value;
-
-            const password =
-                document.querySelector(
-                    "#password"
-                ).value;
-
-            if (
-                username !== ADMIN_USER ||
-                password !== ADMIN_PASSWORD
-            ) {
-                document.querySelector(
-                    "#loginError"
-                ).textContent =
-                    "Incorrect username or password.";
-
-                return;
-            }
-
-            sessionStorage.setItem(
-                "hotpointAdmin",
-                "yes"
-            );
-
-            document.querySelector(
-                "#loginError"
-            ).textContent = "";
-
-            showAdminPanel();
-        });
-
-    /* ADMIN LOGOUT */
-
-    document
-        .querySelector("#logoutBtn")
-        .addEventListener("click", () => {
-            sessionStorage.removeItem(
-                "hotpointAdmin"
-            );
-
-            adminPanel.hidden = true;
-            loginPanel.hidden = false;
-
-            document.querySelector(
-                "#password"
-            ).value = "";
-        });
-
-    /* ADD TOOL */
-
-    document
-        .querySelector("#toolForm")
-        .addEventListener("submit", event => {
-            event.preventDefault();
-
-            const data = loadData();
-
-            const toolName =
-                document.querySelector(
-                    "#toolName"
-                ).value.trim();
-
-            const quantity = Number(
-                document.querySelector(
-                    "#toolQuantity"
-                ).value
-            );
-
-            const description =
-                document.querySelector(
-                    "#toolDescription"
-                ).value.trim();
-
-            if (!toolName || !description) {
-                alert(
-                    "Enter the tool name and description."
+            const minimumQuantity =
+                Math.max(
+                    1,
+                    allocatedQuantity
                 );
 
-                return;
+            return `
+                <div class="managed-tool">
+                    <div class="managed-tool-heading">
+                        <b>
+                            ${escapeHTML(tool.name)}
+                        </b>
+
+                        <small>
+                            ${tool.quantity} total
+                            •
+                            ${allocatedQuantity}
+                            currently allocated
+                        </small>
+                    </div>
+
+                    <div class="managed-tool-fields">
+                        <label>
+                            Quantity
+
+                            <input
+                                type="number"
+                                min="${minimumQuantity}"
+                                step="1"
+                                value="${tool.quantity}"
+                                data-tool-quantity="${tool.id}"
+                            >
+                        </label>
+
+                        <label>
+                            Description
+
+                            <textarea
+                                rows="2"
+                                data-tool-description="${tool.id}"
+                            >${escapeHTML(
+                                tool.description
+                            )}</textarea>
+                        </label>
+                    </div>
+
+                    <div class="managed-tool-actions">
+                        <button
+                            data-save-tool="${tool.id}"
+                            data-allocated="${allocatedQuantity}"
+                        >
+                            Save Changes
+                        </button>
+
+                        <button
+                            class="remove"
+                            data-remove-tool="${tool.id}"
+                            data-tool-name="${escapeHTML(
+                                tool.name
+                            )}"
+                            ${
+                                allocatedQuantity > 0
+                                    ? `disabled title="Release allocated units first"`
+                                    : ""
+                            }
+                        >
+                            Remove
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join("") ||
+        "No tools have been added.";
+}
+
+function showAuthentication() {
+    const loggedIn = Boolean(token);
+
+    $("#login").hidden = loggedIn;
+    $("#adminPanel").hidden = !loggedIn;
+}
+
+/* =========================================================
+   PAGE NAVIGATION
+   ========================================================= */
+
+document
+    .querySelectorAll("nav button")
+    .forEach(button => {
+        button.addEventListener(
+            "click",
+            () => {
+                document
+                    .querySelectorAll(
+                        "nav button"
+                    )
+                    .forEach(item => {
+                        item.classList.remove(
+                            "active"
+                        );
+                    });
+
+                button.classList.add(
+                    "active"
+                );
+
+                const adminPage =
+                    button.dataset.view ===
+                    "admin";
+
+                $("#publicView").hidden =
+                    adminPage;
+
+                $("#adminView").hidden =
+                    !adminPage;
+
+                showAuthentication();
             }
+        );
+    });
+
+$("#assignDate").value = today();
+$("#transferDate").value = today();
+
+$("#refresh").addEventListener(
+    "click",
+    loadData
+);
+
+$("#search").addEventListener(
+    "input",
+    renderApplication
+);
+
+/* =========================================================
+   ADMIN LOGIN
+   ========================================================= */
+
+$("#login").addEventListener(
+    "submit",
+    async event => {
+        event.preventDefault();
+
+        const username =
+            $("#username")
+                .value
+                .trim()
+                .toUpperCase();
+
+        const password =
+            $("#password").value;
+
+        if (
+            username !== ADMIN_USERNAME ||
+            password !== ADMIN_PASSWORD
+        ) {
+            showMessage(
+                "Incorrect username or password.",
+                "error"
+            );
+
+            return;
+        }
+
+        try {
+            const response = await api(
+                "/auth/v1/token" +
+                "?grant_type=password",
+                {
+                    method: "POST",
+
+                    body: JSON.stringify({
+                        email: ADMIN_EMAIL,
+                        password
+                    })
+                }
+            );
+
+            token = response.access_token;
+
+            localStorage.setItem(
+                "hp_access",
+                token
+            );
+
+            showAuthentication();
+
+            showMessage(
+                "Administrator signed in."
+            );
+
+            await loadData();
+        } catch (error) {
+            showMessage(
+                "Supabase rejected the login. " +
+                "Set the admin user's " +
+                "Supabase password to " +
+                "Hotpoint_Tools.",
+                "error"
+            );
+        }
+    }
+);
+
+/* =========================================================
+   LOG OUT
+   ========================================================= */
+
+$("#logout").addEventListener(
+    "click",
+    () => {
+        token = "";
+
+        localStorage.removeItem(
+            "hp_access"
+        );
+
+        showAuthentication();
+
+        showMessage("Signed out.");
+    }
+);
+
+/* =========================================================
+   ADD TOOL
+   ========================================================= */
+
+$("#addTool").addEventListener(
+    "submit",
+    async event => {
+        event.preventDefault();
+
+        const name =
+            $("#toolName").value.trim();
+
+        const quantity =
+            Number($("#quantity").value);
+
+        const description =
+            $("#description").value.trim();
+
+        if (
+            !name ||
+            !description ||
+            !Number.isInteger(quantity) ||
+            quantity < 1
+        ) {
+            showMessage(
+                "Enter a valid tool name, quantity and description.",
+                "error"
+            );
+
+            return;
+        }
+
+        try {
+            await api(
+                "/rest/v1/tools",
+                {
+                    admin: true,
+                    method: "POST",
+
+                    headers: {
+                        Prefer:
+                            "return=minimal"
+                    },
+
+                    body: JSON.stringify({
+                        name,
+                        quantity,
+                        description
+                    })
+                }
+            );
+
+            event.target.reset();
+
+            $("#quantity").value = 1;
+
+            showMessage(
+                "Tool added successfully."
+            );
+
+            await loadData();
+        } catch (error) {
+            showMessage(
+                error.message,
+                "error"
+            );
+        }
+    }
+);
+
+/* =========================================================
+   EDIT OR REMOVE TOOL
+   ========================================================= */
+
+$("#manageTools").addEventListener(
+    "click",
+    async event => {
+        const saveButton =
+            event.target.closest(
+                "[data-save-tool]"
+            );
+
+        /*
+         * Save quantity and description.
+         */
+
+        if (saveButton) {
+            const toolId =
+                saveButton.dataset.saveTool;
+
+            const allocatedQuantity =
+                Number(
+                    saveButton.dataset.allocated
+                );
+
+            const quantityInput =
+                document.querySelector(
+                    `[data-tool-quantity="${toolId}"]`
+                );
+
+            const descriptionInput =
+                document.querySelector(
+                    `[data-tool-description="${toolId}"]`
+                );
+
+            const quantity =
+                Number(quantityInput.value);
+
+            const description =
+                descriptionInput.value.trim();
 
             if (
                 !Number.isInteger(quantity) ||
                 quantity < 1
             ) {
-                alert(
-                    "The quantity must be a whole number of at least 1."
+                showMessage(
+                    "Quantity must be a whole number of at least 1.",
+                    "error"
                 );
 
                 return;
             }
 
-            data.tools.push({
-                id: uid(),
-                name: toolName,
-                quantity: quantity,
-                description: description,
-                assignments: []
-            });
-
-            saveData(data);
-
-            event.target.reset();
-
-            document.querySelector(
-                "#toolQuantity"
-            ).value = 1;
-
-            renderAdmin();
-        });
-
-    /* ASSIGN TOOL */
-
-    document
-        .querySelector("#assignmentForm")
-        .addEventListener("submit", event => {
-            event.preventDefault();
-
-            const data = loadData();
-
-            const selectedToolId =
-                document.querySelector(
-                    "#assignTool"
-                ).value;
-
-            const technicianName =
-                document.querySelector(
-                    "#technicianName"
-                ).value.trim();
-
-            const siteName =
-                document.querySelector(
-                    "#siteName"
-                ).value.trim();
-
-            const assignedDate =
-                assignedDateInput.value;
-
-            const tool = data.tools.find(item => {
-                return item.id === selectedToolId;
-            });
-
-            if (!tool || available(tool) < 1) {
-                alert(
-                    "The selected tool is not available."
+            if (
+                quantity <
+                allocatedQuantity
+            ) {
+                showMessage(
+                    `Quantity cannot be below ${allocatedQuantity} because those units are currently allocated.`,
+                    "error"
                 );
 
                 return;
             }
 
-            if (!technicianName) {
-                alert(
-                    "Enter the technician's name."
+            if (!description) {
+                showMessage(
+                    "Enter a tool description.",
+                    "error"
                 );
 
                 return;
             }
 
-            if (!siteName) {
-                alert(
-                    "Enter the site name."
+            try {
+                await api(
+                    `/rest/v1/tools?id=eq.${encodeURIComponent(
+                        toolId
+                    )}`,
+                    {
+                        admin: true,
+                        method: "PATCH",
+
+                        headers: {
+                            Prefer:
+                                "return=minimal"
+                        },
+
+                        body: JSON.stringify({
+                            quantity,
+                            description
+                        })
+                    }
                 );
 
-                return;
-            }
-
-            if (!assignedDate) {
-                alert(
-                    "Select the date assigned."
+                showMessage(
+                    "Tool details updated."
                 );
 
-                return;
+                await loadData();
+            } catch (error) {
+                showMessage(
+                    error.message,
+                    "error"
+                );
             }
 
-            const allocationRecord = {
-                id: uid(),
-                toolId: tool.id,
-                toolName: tool.name,
-                technician: technicianName,
-                site: siteName,
-                assignedDate: assignedDate,
-                releasedDate: "",
-                action: "Assigned"
-            };
+            return;
+        }
 
-            tool.assignments.push(
-                allocationRecord
+        /*
+         * Remove tool.
+         */
+
+        const removeButton =
+            event.target.closest(
+                "[data-remove-tool]"
             );
 
-            data.history.push({
-                ...allocationRecord
-            });
+        if (
+            !removeButton ||
+            removeButton.disabled
+        ) {
+            return;
+        }
 
-            saveData(data);
+        const toolName =
+            removeButton.dataset.toolName;
 
-            event.target.reset();
+        const shouldRemove = confirm(
+            `Remove ${toolName}?`
+        );
 
-            assignedDateInput.value = today();
+        if (!shouldRemove) {
+            return;
+        }
 
-            renderAdmin();
-        });
-
-    /* INVENTORY ACTIONS */
-
-    document
-        .querySelector("#adminInventory")
-        .addEventListener("click", event => {
-            const button = event.target.closest(
-                "button[data-action]"
-            );
-
-            if (!button) {
-                return;
-            }
-
-            const data = loadData();
-
-            const tool = data.tools.find(item => {
-                return item.id ===
-                    button.dataset.tool;
-            });
-
-            if (!tool) {
-                return;
-            }
-
-            const action = button.dataset.action;
-
-            /* OPEN TRANSFER FORM */
-
-            if (action === "transfer") {
-                const assignment =
-                    tool.assignments.find(item => {
-                        return (
-                            item.id ===
-                            button.dataset.assignment
-                        );
-                    });
-
-                if (!assignment) {
-                    return;
-                }
-
-                document.querySelector(
-                    "#transferToolId"
-                ).value = tool.id;
-
-                document.querySelector(
-                    "#transferAssignmentId"
-                ).value = assignment.id;
-
-                document.querySelector(
-                    "#transferDate"
-                ).value = today();
-
-                document.querySelector(
-                    "#transferSummary"
-                ).textContent =
-                    `Transfer ${tool.name} from ` +
-                    `${assignment.technician} at ` +
-                    `${assignment.site}.`;
-
-                transferModal.hidden = false;
-
-                document.body.classList.add(
-                    "modal-open"
-                );
-
-                document.querySelector(
-                    "#transferTechnician"
-                ).focus();
-
-                return;
-            }
-
-            /* REMOVE TOOL */
-
-            if (action === "remove") {
-                if (tool.assignments.length > 0) {
-                    alert(
-                        "Release all allocated units before removing this tool."
-                    );
-
-                    return;
-                }
-
-                const shouldRemove = confirm(
-                    `Remove ${tool.name} from inventory?`
-                );
-
-                if (!shouldRemove) {
-                    return;
-                }
-
-                data.tools = data.tools.filter(item => {
-                    return item.id !== tool.id;
-                });
-            }
-
-            /* UPDATE QUANTITY */
-
-            if (action === "save") {
-                const quantityInput =
-                    document.querySelector(
-                        `[data-quantity="${tool.id}"]`
-                    );
-
-                const newQuantity =
-                    Number(quantityInput.value);
-
-                const minimumQuantity =
-                    Math.max(
-                        1,
-                        tool.assignments.length
-                    );
-
-                if (
-                    !Number.isInteger(newQuantity) ||
-                    newQuantity < minimumQuantity
-                ) {
-                    alert(
-                        `Quantity must be a whole number and cannot be below ${minimumQuantity}.`
-                    );
-
-                    quantityInput.value =
-                        tool.quantity;
-
-                    return;
-                }
-
-                tool.quantity = newQuantity;
-            }
-
-            /* RELEASE TOOL */
-
-            if (action === "release") {
-                const assignment =
-                    tool.assignments.find(item => {
-                        return (
-                            item.id ===
-                            button.dataset.assignment
-                        );
-                    });
-
-                if (!assignment) {
-                    return;
-                }
-
-                const shouldRelease = confirm(
-                    `Release ${tool.name} from ${assignment.technician}?`
-                );
-
-                if (!shouldRelease) {
-                    return;
-                }
-
-                tool.assignments =
-                    tool.assignments.filter(item => {
-                        return (
-                            item.id !== assignment.id
-                        );
-                    });
-
-                const historyRecord =
-                    data.history.find(record => {
-                        return (
-                            record.id ===
-                            assignment.id
-                        );
-                    });
-
-                if (historyRecord) {
-                    historyRecord.releasedDate =
-                        today();
-
-                    historyRecord.action =
-                        "Released";
-                }
-            }
-
-            saveData(data);
-            renderAdmin();
-        });
-
-    /* CONFIRM TRANSFER */
-
-    document
-        .querySelector("#transferForm")
-        .addEventListener("submit", event => {
-            event.preventDefault();
-
-            const data = loadData();
-
+        try {
             const toolId =
-                document.querySelector(
-                    "#transferToolId"
-                ).value;
-
-            const oldAssignmentId =
-                document.querySelector(
-                    "#transferAssignmentId"
-                ).value;
-
-            const newTechnician =
-                document.querySelector(
-                    "#transferTechnician"
-                ).value.trim();
-
-            const newSite =
-                document.querySelector(
-                    "#transferSite"
-                ).value.trim();
-
-            const transferDate =
-                document.querySelector(
-                    "#transferDate"
-                ).value;
-
-            const tool = data.tools.find(item => {
-                return item.id === toolId;
-            });
-
-            if (!tool) {
-                alert("The selected tool was not found.");
-                return;
-            }
-
-            const oldAssignment =
-                tool.assignments.find(item => {
-                    return item.id ===
-                        oldAssignmentId;
-                });
-
-            if (!oldAssignment) {
-                alert(
-                    "The original allocation was not found."
+                encodeURIComponent(
+                    removeButton.dataset
+                        .removeTool
                 );
 
-                return;
-            }
+            await api(
+                `/rest/v1/tools?id=eq.${toolId}`,
+                {
+                    admin: true,
+                    method: "DELETE",
 
-            if (!newTechnician) {
-                alert(
-                    "Enter the new technician's name."
+                    headers: {
+                        Prefer:
+                            "return=minimal"
+                    }
+                }
+            );
+
+            showMessage(
+                `${toolName} removed.`
+            );
+
+            await loadData();
+        } catch (error) {
+            const errorMessage =
+                /foreign key|violates/i.test(
+                    error.message
+                )
+                    ? (
+                        "This tool has allocation " +
+                        "history and cannot be " +
+                        "permanently deleted."
+                    )
+                    : error.message;
+
+            showMessage(
+                errorMessage,
+                "error"
+            );
+        }
+    }
+);
+
+/* =========================================================
+   ASSIGN TOOL
+   ========================================================= */
+
+$("#assign").addEventListener(
+    "submit",
+    async event => {
+        event.preventDefault();
+
+        try {
+            await api(
+                "/rest/v1/rpc/assign_tool",
+                {
+                    admin: true,
+                    method: "POST",
+
+                    body: JSON.stringify({
+                        p_tool_id:
+                            $("#toolSelect").value,
+
+                        p_technician:
+                            $("#technician")
+                                .value
+                                .trim(),
+
+                        p_site:
+                            $("#site")
+                                .value
+                                .trim(),
+
+                        p_date:
+                            $("#assignDate").value
+                    })
+                }
+            );
+
+            event.target.reset();
+
+            $("#assignDate").value =
+                today();
+
+            showMessage(
+                "Tool assigned successfully."
+            );
+
+            await loadData();
+        } catch (error) {
+            showMessage(
+                error.message,
+                "error"
+            );
+        }
+    }
+);
+
+/* =========================================================
+   RELEASE OR TRANSFER TOOL
+   ========================================================= */
+
+$("#active").addEventListener(
+    "click",
+    async event => {
+        const releaseId =
+            event.target.dataset.release;
+
+        const transferId =
+            event.target.dataset.transfer;
+
+        if (
+            releaseId &&
+            confirm("Release this tool?")
+        ) {
+            try {
+                await api(
+                    "/rest/v1/rpc/release_tool",
+                    {
+                        admin: true,
+                        method: "POST",
+
+                        body: JSON.stringify({
+                            p_history_id:
+                                releaseId,
+
+                            p_date: today()
+                        })
+                    }
                 );
 
-                return;
-            }
-
-            if (!newSite) {
-                alert(
-                    "Enter the new site name."
+                showMessage(
+                    "Tool released."
                 );
 
-                return;
-            }
-
-            if (!transferDate) {
-                alert(
-                    "Select the transfer date."
+                await loadData();
+            } catch (error) {
+                showMessage(
+                    error.message,
+                    "error"
                 );
-
-                return;
             }
+        }
 
-            /*
-             * Remove the old active allocation.
-             */
-
-            tool.assignments =
-                tool.assignments.filter(item => {
-                    return (
-                        item.id !== oldAssignmentId
-                    );
-                });
-
-            /*
-             * Close the old technician's history record.
-             */
-
-            const oldHistoryRecord =
-                data.history.find(record => {
+        if (transferId) {
+            const allocation =
+                history.find(record => {
                     return (
                         record.id ===
-                        oldAssignmentId
+                        transferId
                     );
                 });
 
-            if (oldHistoryRecord) {
-                oldHistoryRecord.releasedDate =
-                    transferDate;
-
-                oldHistoryRecord.action =
-                    `Transferred to ${newTechnician} — ${newSite}`;
+            if (!allocation) {
+                return;
             }
 
-            /*
-             * Create a new active allocation for the
-             * receiving technician and site.
-             */
+            $("#historyId").value =
+                transferId;
 
-            const newAssignment = {
-                id: uid(),
-                toolId: tool.id,
-                toolName: tool.name,
-                technician: newTechnician,
-                site: newSite,
-                assignedDate: transferDate,
-                releasedDate: "",
-                action:
-                    `Transferred from ` +
-                    `${oldAssignment.technician} — ` +
-                    `${oldAssignment.site}`
-            };
+            $("#transferText").textContent =
+                `Transfer from ` +
+                `${allocation.technician} ` +
+                `at ${allocation.site}`;
 
-            tool.assignments.push(newAssignment);
+            $("#transferDate").value =
+                today();
 
-            data.history.push({
-                ...newAssignment
-            });
-
-            saveData(data);
-
-            closeTransferModal();
-            renderAdmin();
-        });
-
-    /* CLOSE TRANSFER FORM */
-
-    transferModal.addEventListener(
-        "click",
-        event => {
-            if (
-                event.target.matches(
-                    "[data-close-transfer]"
-                )
-            ) {
-                closeTransferModal();
-            }
+            $("#transfer").showModal();
         }
-    );
+    }
+);
 
-    document.addEventListener(
-        "keydown",
-        event => {
-            if (
-                event.key === "Escape" &&
-                !transferModal.hidden
-            ) {
-                closeTransferModal();
-            }
+$("#cancel").addEventListener(
+    "click",
+    () => {
+        $("#transfer").close();
+    }
+);
+
+$("#transferForm").addEventListener(
+    "submit",
+    async event => {
+        event.preventDefault();
+
+        try {
+            await api(
+                "/rest/v1/rpc/transfer_tool",
+                {
+                    admin: true,
+                    method: "POST",
+
+                    body: JSON.stringify({
+                        p_history_id:
+                            $("#historyId").value,
+
+                        p_technician:
+                            $("#newTechnician")
+                                .value
+                                .trim(),
+
+                        p_site:
+                            $("#newSite")
+                                .value
+                                .trim(),
+
+                        p_date:
+                            $("#transferDate").value
+                    })
+                }
+            );
+
+            $("#transfer").close();
+
+            event.target.reset();
+
+            showMessage(
+                "Tool transferred."
+            );
+
+            await loadData();
+        } catch (error) {
+            showMessage(
+                error.message,
+                "error"
+            );
         }
-    );
-
-    window.addEventListener(
-        "storage",
-        renderAdmin
-    );
-}
+    }
+);
 
 /* =========================================================
-   RENDER ADMIN INVENTORY
+   START APPLICATION
    ========================================================= */
 
-function renderAdmin() {
-    const data = loadData();
+showAuthentication();
+loadData();
 
-    const toolSelect =
-        document.querySelector("#assignTool");
+/*
+ * Refresh shared records every 60 seconds.
+ */
 
-    if (!toolSelect) {
-        return;
-    }
-
-    const availableTools = data.tools.filter(tool => {
-        return available(tool) > 0;
-    });
-
-    if (availableTools.length > 0) {
-        toolSelect.innerHTML = availableTools
-            .map(tool => {
-                return `
-                    <option value="${tool.id}">
-                        ${escapeHTML(tool.name)}
-                        (${available(tool)} free)
-                    </option>
-                `;
-            })
-            .join("");
-    } else {
-        toolSelect.innerHTML = `
-            <option value="">
-                No tools available
-            </option>
-        `;
-    }
-
-    document.querySelector(
-        "#assignBtn"
-    ).disabled = availableTools.length === 0;
-
-    const inventoryContainer =
-        document.querySelector("#adminInventory");
-
-    if (data.tools.length === 0) {
-        inventoryContainer.innerHTML = `
-            <div class="empty">
-                No tools are currently in inventory.
-                Add the first tool above.
-            </div>
-        `;
-
-        return;
-    }
-
-    inventoryContainer.innerHTML = data.tools
-        .map(tool => {
-            const currentAssignments =
-                tool.assignments.length > 0
-                    ? `
-                        <div class="current-list">
-                            ${tool.assignments
-                                .map(assignment => {
-                                    return `
-                                        <div class="current-item">
-                                            <div class="assignment-person">
-                                                <strong>
-                                                    ${escapeHTML(
-                                                        assignment.technician
-                                                    )}
-                                                </strong>
-
-                                                <small>
-                                                    ${escapeHTML(
-                                                        assignment.site
-                                                    )}
-                                                    • Assigned
-                                                    ${prettyDate(
-                                                        assignment.assignedDate
-                                                    )}
-                                                </small>
-                                            </div>
-
-                                            <div class="current-actions">
-                                                <button
-                                                    class="transfer-button"
-                                                    data-action="transfer"
-                                                    data-tool="${tool.id}"
-                                                    data-assignment="${assignment.id}"
-                                                >
-                                                    Transfer
-                                                </button>
-
-                                                <button
-                                                    data-action="release"
-                                                    data-tool="${tool.id}"
-                                                    data-assignment="${assignment.id}"
-                                                >
-                                                    Release
-                                                </button>
-                                            </div>
-                                        </div>
-                                    `;
-                                })
-                                .join("")}
-                        </div>
-                    `
-                    : "";
-
-            return `
-                <article class="inventory-row">
-                    <div class="inventory-head">
-                        <div>
-                            <h2>
-                                ${escapeHTML(tool.name)}
-                            </h2>
-
-                            <p>
-                                ${escapeHTML(tool.description)}
-                                •
-                                ${available(tool)}
-                                of
-                                ${tool.quantity}
-                                available
-                            </p>
-                        </div>
-
-                        <label>
-                            Quantity
-
-                            <input
-                                data-quantity="${tool.id}"
-                                type="number"
-                                min="${Math.max(
-                                    1,
-                                    tool.assignments.length
-                                )}"
-                                step="1"
-                                value="${tool.quantity}"
-                            >
-                        </label>
-
-                        <div class="inventory-actions">
-                            <button
-                                data-action="save"
-                                data-tool="${tool.id}"
-                            >
-                                Save
-                            </button>
-
-                            <button
-                                class="danger-button"
-                                data-action="remove"
-                                data-tool="${tool.id}"
-                            >
-                                Remove
-                            </button>
-                        </div>
-                    </div>
-
-                    ${currentAssignments}
-                </article>
-            `;
-        })
-        .join("");
-}
-
-/* =========================================================
-   START THE CORRECT PAGE
-   ========================================================= */
-
-if (document.body.dataset.page === "request") {
-    initRequest();
-}
-
-if (document.body.dataset.page === "admin") {
-    initAdmin();
-}
+setInterval(
+    loadData,
+    60000
+);
