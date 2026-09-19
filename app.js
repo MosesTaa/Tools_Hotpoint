@@ -592,6 +592,13 @@ function renderToolManagement(
                     <div class="managed-tool-actions">
                         <button
                             type="button"
+                            data-edit-name="${tool.id}"
+                        >
+                            Edit Name
+                        </button>
+
+                        <button
+                            type="button"
                             data-edit-quantity="${tool.id}"
                         >
                             Edit Quantity
@@ -863,6 +870,70 @@ $("#addTool").addEventListener(
 $("#manageTools").addEventListener(
     "click",
     async event => {
+        const nameButton =
+            event.target.closest(
+                "[data-edit-name]"
+            );
+
+        if (nameButton) {
+            const tool = tools.find(item => {
+                return String(item.id) ===
+                    String(
+                        nameButton.dataset.editName
+                    );
+            });
+
+            if (!tool) {
+                return;
+            }
+
+            const enteredName = prompt(
+                "Edit tool name:",
+                tool.name
+            );
+
+            if (enteredName === null) {
+                return;
+            }
+
+            const name = enteredName.trim();
+
+            if (!name) {
+                showMessage(
+                    "The tool name cannot be empty.",
+                    "error"
+                );
+                return;
+            }
+
+            try {
+                await api(
+                    `/rest/v1/tools?id=eq.${encodeURIComponent(tool.id)}`,
+                    {
+                        admin: true,
+                        method: "PATCH",
+                        headers: {
+                            Prefer: "return=minimal"
+                        },
+                        body: JSON.stringify({ name })
+                    }
+                );
+
+                showMessage(
+                    "Tool name updated."
+                );
+
+                await loadData();
+            } catch (error) {
+                showMessage(
+                    error.message,
+                    "error"
+                );
+            }
+
+            return;
+        }
+
         const quantityButton =
             event.target.closest(
                 "[data-edit-quantity]"
