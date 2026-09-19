@@ -13,8 +13,15 @@ const KEY =
 const ADMIN_EMAIL =
     "mosesntella2018@gmail.com";
 
-const ADMIN_USERNAME = "ADMIN";
-const ADMIN_PASSWORD = "Hotpoint_Tools";
+const ADMIN_USERNAME =
+    "ADMIN";
+
+const ADMIN_PASSWORD =
+    "Hotpoint_Tools";
+
+/* =========================================================
+   APPLICATION DATA
+   ========================================================= */
 
 let token =
     localStorage.getItem("hp_access") || "";
@@ -22,19 +29,25 @@ let token =
 let tools = [];
 let history = [];
 
+/* =========================================================
+   HELPER FUNCTIONS
+   ========================================================= */
+
 const $ = selector =>
     document.querySelector(selector);
 
 const escapeHTML = value => {
     return String(value ?? "").replace(
         /[&<>'"]/g,
-        character => ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            "'": "&#39;",
-            '"': "&quot;"
-        })[character]
+        character => {
+            return {
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                "'": "&#39;",
+                '"': "&quot;"
+            }[character];
+        }
     );
 };
 
@@ -52,7 +65,7 @@ const today = () =>
     new Date().toISOString().slice(0, 10);
 
 /* =========================================================
-   SUPABASE REQUEST
+   SUPABASE REQUEST HEADERS
    ========================================================= */
 
 function createHeaders(admin = false) {
@@ -70,6 +83,10 @@ function createHeaders(admin = false) {
     };
 }
 
+/* =========================================================
+   USER MESSAGES
+   ========================================================= */
+
 function showMessage(text, type = "ok") {
     const message = $("#message");
 
@@ -81,6 +98,11 @@ function showMessage(text, type = "ok") {
         message.className = "";
     }, 4500);
 }
+
+/* =========================================================
+   SUPABASE API REQUEST
+   Handles empty responses without producing a JSON error.
+   ========================================================= */
 
 async function api(path, options = {}) {
     const response = await fetch(
@@ -107,8 +129,8 @@ async function api(path, options = {}) {
     }
 
     /*
-     * Supabase sometimes sends an empty response after
-     * adding, editing or deleting a record.
+     * Supabase may return an empty response after a
+     * successful INSERT, UPDATE or DELETE operation.
      */
 
     const responseText =
@@ -144,28 +166,27 @@ async function api(path, options = {}) {
 }
 
 /* =========================================================
-   LOAD TOOLS AND HISTORY
+   LOAD SHARED DATA
    ========================================================= */
 
 async function loadData() {
     try {
-        const responses =
-            await Promise.all([
-                api(
-                    "/rest/v1/tools" +
-                    "?select=*" +
-                    "&order=name"
-                ),
+        const requests = await Promise.all([
+            api(
+                "/rest/v1/tools" +
+                "?select=*" +
+                "&order=name"
+            ),
 
-                api(
-                    "/rest/v1/tool_history" +
-                    "?select=*" +
-                    "&order=assigned_on.desc,created_at.desc"
-                )
-            ]);
+            api(
+                "/rest/v1/tool_history" +
+                "?select=*" +
+                "&order=assigned_on.desc,created_at.desc"
+            )
+        ]);
 
-        tools = responses[0] || [];
-        history = responses[1] || [];
+        tools = requests[0] || [];
+        history = requests[1] || [];
 
         localStorage.setItem(
             "hp_cache",
@@ -178,9 +199,8 @@ async function loadData() {
         renderApplication();
     } catch (error) {
         const cachedData = JSON.parse(
-            localStorage.getItem(
-                "hp_cache"
-            ) || "null"
+            localStorage.getItem("hp_cache") ||
+            "null"
         );
 
         if (cachedData) {
@@ -201,6 +221,10 @@ async function loadData() {
         }
     }
 }
+
+/* =========================================================
+   ACTIVE ALLOCATIONS
+   ========================================================= */
 
 function getActiveAllocations() {
     return history.filter(record => {
@@ -253,41 +277,38 @@ function renderApplication() {
 }
 
 /* =========================================================
-   PUBLIC TOOL CARDS
+   RENDER PUBLIC TOOLS
    ========================================================= */
 
 function renderPublicTools(
     allocations,
     searchText
 ) {
-    const matchingTools =
-        tools.filter(tool => {
-            const toolAllocations =
-                allocations.filter(record => {
-                    return (
-                        record.tool_id ===
-                        tool.id
-                    );
-                });
+    const matchingTools = tools.filter(tool => {
+        const toolAllocations =
+            allocations.filter(record => {
+                return (
+                    record.tool_id === tool.id
+                );
+            });
 
-            const searchableText = `
-                ${tool.name}
-                ${tool.description}
-                ${toolAllocations
-                    .map(record => {
-                        return (
-                            record.technician +
-                            " " +
-                            record.site
-                        );
-                    })
-                    .join(" ")}
-            `.toLowerCase();
+        const searchableText = `
+            ${tool.name}
+            ${tool.description}
+            ${toolAllocations.map(record => record.tool_number || "").join(" ")}
+            ${toolAllocations.map(record => {
+                return (
+                    record.technician +
+                    " " +
+                    record.site
+                );
+            }).join(" ")}
+        `.toLowerCase();
 
-            return searchableText.includes(
-                searchText
-            );
-        });
+        return searchableText.includes(
+            searchText
+        );
+    });
 
     $("#tools").innerHTML =
         matchingTools.map(tool => {
@@ -312,11 +333,11 @@ function renderPublicTools(
                         ${escapeHTML(tool.name)}
                     </h3>
 
-                    <p class="tool-description">
+                    <small>
                         ${escapeHTML(
                             tool.description
                         )}
-                    </p>
+                    </small>
 
                     <div class="counts">
                         <span>
@@ -332,31 +353,33 @@ function renderPublicTools(
                         </span>
                     </div>
 
-                    ${toolAllocations
-                        .map(record => {
-                            return `
-                                <div class="holder">
-                                    <b>
-                                        ${escapeHTML(
-                                            record.technician
-                                        )}
-                                    </b>
+                    ${toolAllocations.map(record => {
+                        return `
+                            <div class="holder">
+                                <b>
+                                    ${escapeHTML(
+                                        record.technician
+                                    )}
+                                </b>
 
-                                    <br>
+                                <br>
 
-                                    <small>
-                                        ${escapeHTML(
-                                            record.site
-                                        )}
-                                        •
-                                        ${formatDate(
-                                            record.assigned_on
-                                        )}
-                                    </small>
-                                </div>
-                            `;
-                        })
-                        .join("")}
+                                <small>
+                                    Tool No: ${escapeHTML(
+                                        record.tool_number || "Not recorded"
+                                    )}
+                                    •
+                                    ${escapeHTML(
+                                        record.site
+                                    )}
+                                    •
+                                    ${formatDate(
+                                        record.assigned_on
+                                    )}
+                                </small>
+                            </div>
+                        `;
+                    }).join("")}
                 </article>
             `;
         }).join("") ||
@@ -364,7 +387,7 @@ function renderPublicTools(
 }
 
 /* =========================================================
-   ALLOCATION HISTORY
+   RENDER HISTORY
    ========================================================= */
 
 function renderHistory() {
@@ -396,6 +419,13 @@ function renderHistory() {
                     </td>
 
                     <td>
+                        ${escapeHTML(
+                            record.tool_number ||
+                            "Not recorded"
+                        )}
+                    </td>
+
+                    <td>
                         ${formatDate(
                             record.assigned_on
                         )}
@@ -418,7 +448,7 @@ function renderHistory() {
 }
 
 /* =========================================================
-   AVAILABLE TOOL DROPDOWN
+   RENDER ASSIGNMENT DROPDOWN
    ========================================================= */
 
 function renderToolOptions(allocations) {
@@ -447,12 +477,10 @@ function renderToolOptions(allocations) {
             `;
         }).join("");
 
-    $("#assign button").disabled =
-        availableTools.length === 0;
 }
 
 /* =========================================================
-   ACTIVE ALLOCATIONS
+   RENDER ACTIVE ALLOCATIONS
    ========================================================= */
 
 function renderActiveAllocations(
@@ -469,13 +497,22 @@ function renderActiveAllocations(
 
             return `
                 <div class="allocation">
-                    <span>
+                    <span class="managed-tool-heading">
                         <b>
                             ${escapeHTML(
                                 tool?.name ||
                                 "Tool"
                             )}
                         </b>
+
+                        <br>
+
+                        <small>
+                            Tool No: ${escapeHTML(
+                                record.tool_number ||
+                                "Not recorded"
+                            )}
+                        </small>
 
                         <br>
 
@@ -511,7 +548,7 @@ function renderActiveAllocations(
 }
 
 /* =========================================================
-   MANAGE TOOLS
+   RENDER TOOL MANAGEMENT
    ========================================================= */
 
 function renderToolManagement(
@@ -527,15 +564,12 @@ function renderToolManagement(
                     );
                 }).length;
 
-            const minimumQuantity =
-                Math.max(
-                    1,
-                    allocatedQuantity
-                );
+            const disabled =
+                allocatedQuantity > 0;
 
             return `
                 <div class="managed-tool">
-                    <div class="managed-tool-heading">
+                    <span>
                         <b>
                             ${escapeHTML(tool.name)}
                         </b>
@@ -546,49 +580,32 @@ function renderToolManagement(
                             ${allocatedQuantity}
                             currently allocated
                         </small>
-                    </div>
+                    </span>
 
-                    <div class="managed-tool-fields">
-                        <label>
-                            Quantity
-
-                            <input
-                                type="number"
-                                min="${minimumQuantity}"
-                                step="1"
-                                value="${tool.quantity}"
-                                data-tool-quantity="${tool.id}"
-                            >
-                        </label>
-
-                        <label>
-                            Description
-
-                            <textarea
-                                rows="2"
-                                data-tool-description="${tool.id}"
-                            >${escapeHTML(
-                                tool.description
-                            )}</textarea>
-                        </label>
-                    </div>
+                    <p class="managed-tool-description">
+                        ${escapeHTML(
+                            tool.description ||
+                            "No description added."
+                        )}
+                    </p>
 
                     <div class="managed-tool-actions">
                         <button
-                            data-save-tool="${tool.id}"
-                            data-allocated="${allocatedQuantity}"
+                            type="button"
+                            data-edit-description="${tool.id}"
                         >
-                            Save Changes
+                            Edit Description
                         </button>
 
                         <button
+                            type="button"
                             class="remove"
                             data-remove-tool="${tool.id}"
                             data-tool-name="${escapeHTML(
                                 tool.name
                             )}"
                             ${
-                                allocatedQuantity > 0
+                                disabled
                                     ? `disabled title="Release allocated units first"`
                                     : ""
                             }
@@ -665,7 +682,7 @@ $("#transferDate").value = today();
 
 $("#refresh").addEventListener(
     "click",
-    loadData
+    () => window.location.reload()
 );
 
 $("#search").addEventListener(
@@ -734,8 +751,9 @@ $("#login").addEventListener(
         } catch (error) {
             showMessage(
                 "Supabase rejected the login. " +
-                "Set the admin user's password " +
-                "to Hotpoint_Tools.",
+                "Set the admin user's " +
+                "Supabase password to " +
+                "Hotpoint_Tools.",
                 "error"
             );
         }
@@ -743,7 +761,7 @@ $("#login").addEventListener(
 );
 
 /* =========================================================
-   LOGOUT
+   ADMIN LOGOUT
    ========================================================= */
 
 $("#logout").addEventListener(
@@ -762,7 +780,7 @@ $("#logout").addEventListener(
 );
 
 /* =========================================================
-   ADD A NEW TOOL
+   ADD TOOL
    ========================================================= */
 
 $("#addTool").addEventListener(
@@ -779,30 +797,14 @@ $("#addTool").addEventListener(
         const description =
             $("#description").value.trim();
 
-        if (!name) {
-            showMessage(
-                "Enter the tool name.",
-                "error"
-            );
-
-            return;
-        }
-
         if (
+            !name ||
+            !description ||
             !Number.isInteger(quantity) ||
             quantity < 1
         ) {
             showMessage(
-                "Quantity must be a whole number of at least 1.",
-                "error"
-            );
-
-            return;
-        }
-
-        if (!description) {
-            showMessage(
-                "Enter the tool description.",
+                "Enter a valid tool name, quantity and description.",
                 "error"
             );
 
@@ -848,102 +850,72 @@ $("#addTool").addEventListener(
 );
 
 /* =========================================================
-   EDIT OR REMOVE TOOLS
+   REMOVE TOOL
    ========================================================= */
 
 $("#manageTools").addEventListener(
     "click",
     async event => {
-        /*
-         * Save the edited quantity and description.
-         */
-
-        const saveButton =
+        const editButton =
             event.target.closest(
-                "[data-save-tool]"
+                "[data-edit-description]"
             );
 
-        if (saveButton) {
-            const toolId =
-                saveButton.dataset.saveTool;
+        if (editButton) {
+            const tool = tools.find(item => {
+                return String(item.id) ===
+                    String(
+                        editButton.dataset
+                            .editDescription
+                    );
+            });
 
-            const allocatedQuantity =
-                Number(
-                    saveButton.dataset.allocated
-                );
-
-            const quantityInput =
-                document.querySelector(
-                    `[data-tool-quantity="${toolId}"]`
-                );
-
-            const descriptionInput =
-                document.querySelector(
-                    `[data-tool-description="${toolId}"]`
-                );
-
-            const quantity =
-                Number(quantityInput.value);
-
-            const description =
-                descriptionInput.value.trim();
-
-            if (
-                !Number.isInteger(quantity) ||
-                quantity < 1
-            ) {
-                showMessage(
-                    "Quantity must be a whole number of at least 1.",
-                    "error"
-                );
-
+            if (!tool) {
                 return;
             }
 
-            if (
-                quantity <
-                allocatedQuantity
-            ) {
-                showMessage(
-                    `Quantity cannot be below ${allocatedQuantity} because those units are currently allocated.`,
-                    "error"
-                );
+            const description = prompt(
+                `Edit the description for ${tool.name}:`,
+                tool.description || ""
+            );
 
+            if (description === null) {
                 return;
             }
 
-            if (!description) {
+            const cleanDescription =
+                description.trim();
+
+            if (!cleanDescription) {
                 showMessage(
-                    "Enter a tool description.",
+                    "The tool description cannot be empty.",
                     "error"
                 );
-
                 return;
             }
 
             try {
+                const toolId = encodeURIComponent(
+                    tool.id
+                );
+
                 await api(
-                    `/rest/v1/tools?id=eq.${encodeURIComponent(
-                        toolId
-                    )}`,
+                    `/rest/v1/tools?id=eq.${toolId}`,
                     {
                         admin: true,
                         method: "PATCH",
-
                         headers: {
-                            Prefer:
-                                "return=minimal"
+                            Prefer: "return=minimal"
                         },
-
                         body: JSON.stringify({
-                            quantity,
-                            description
+                            description:
+                                cleanDescription
                         })
                     }
                 );
 
                 showMessage(
-                    "Tool details updated."
+                    "Tool description updated."
                 );
 
                 await loadData();
@@ -957,24 +929,17 @@ $("#manageTools").addEventListener(
             return;
         }
 
-        /*
-         * Remove an unallocated tool.
-         */
-
-        const removeButton =
+        const button =
             event.target.closest(
                 "[data-remove-tool]"
             );
 
-        if (
-            !removeButton ||
-            removeButton.disabled
-        ) {
+        if (!button || button.disabled) {
             return;
         }
 
         const toolName =
-            removeButton.dataset.toolName;
+            button.dataset.toolName;
 
         const shouldRemove = confirm(
             `Remove ${toolName}?`
@@ -987,8 +952,7 @@ $("#manageTools").addEventListener(
         try {
             const toolId =
                 encodeURIComponent(
-                    removeButton.dataset
-                        .removeTool
+                    button.dataset.removeTool
                 );
 
             await api(
@@ -1005,7 +969,7 @@ $("#manageTools").addEventListener(
             );
 
             showMessage(
-                `${toolName} removed successfully.`
+                `${toolName} removed.`
             );
 
             await loadData();
@@ -1038,37 +1002,23 @@ $("#assign").addEventListener(
     async event => {
         event.preventDefault();
 
-        const selectedTool =
-            $("#toolSelect").value;
-
-        const technician =
-            $("#technician").value.trim();
-
-        const site =
-            $("#site").value.trim();
-
-        const assignmentDate =
-            $("#assignDate").value;
-
-        if (!selectedTool) {
-            showMessage(
-                "There are no available tools.",
-                "error"
-            );
-
-            return;
-        }
-
-        if (!technician || !site) {
-            showMessage(
-                "Enter the technician and site.",
-                "error"
-            );
-
-            return;
-        }
-
         try {
+            const selectedToolId =
+                $("#toolSelect").value;
+
+            const toolNumber =
+                $("#assignToolNumber")
+                    .value
+                    .trim();
+
+            if (!selectedToolId || !toolNumber) {
+                showMessage(
+                    "Select a tool and enter its tool number.",
+                    "error"
+                );
+                return;
+            }
+
             await api(
                 "/rest/v1/rpc/assign_tool",
                 {
@@ -1077,16 +1027,46 @@ $("#assign").addEventListener(
 
                     body: JSON.stringify({
                         p_tool_id:
-                            selectedTool,
+                            selectedToolId,
 
                         p_technician:
-                            technician,
+                            $("#technician")
+                                .value
+                                .trim(),
 
                         p_site:
-                            site,
+                            $("#site")
+                                .value
+                                .trim(),
 
                         p_date:
-                            assignmentDate
+                            $("#assignDate").value
+                    })
+                }
+            );
+
+            const newAllocations = await api(
+                "/rest/v1/tool_history" +
+                `?tool_id=eq.${encodeURIComponent(selectedToolId)}` +
+                `&technician=eq.${encodeURIComponent($("#technician").value.trim())}` +
+                `&site=eq.${encodeURIComponent($("#site").value.trim())}` +
+                `&assigned_on=eq.${encodeURIComponent($("#assignDate").value)}` +
+                "&ended_on=is.null" +
+                "&order=created_at.desc&limit=1"
+            );
+
+            if (!newAllocations?.[0]?.id) {
+                throw new Error("The allocation was created, but its tool number could not be saved.");
+            }
+
+            await api(
+                `/rest/v1/tool_history?id=eq.${encodeURIComponent(newAllocations[0].id)}`,
+                {
+                    admin: true,
+                    method: "PATCH",
+                    headers: { Prefer: "return=minimal" },
+                    body: JSON.stringify({
+                        tool_number: toolNumber
                     })
                 }
             );
@@ -1138,8 +1118,7 @@ $("#active").addEventListener(
                             p_history_id:
                                 releaseId,
 
-                            p_date:
-                                today()
+                            p_date: today()
                         })
                     }
                 );
@@ -1187,7 +1166,7 @@ $("#active").addEventListener(
 );
 
 /* =========================================================
-   TRANSFER TOOL
+   CANCEL TRANSFER
    ========================================================= */
 
 $("#cancel").addEventListener(
@@ -1197,31 +1176,25 @@ $("#cancel").addEventListener(
     }
 );
 
+/* =========================================================
+   CONFIRM TRANSFER
+   ========================================================= */
+
 $("#transferForm").addEventListener(
     "submit",
     async event => {
         event.preventDefault();
 
-        const newTechnician =
-            $("#newTechnician")
-                .value
-                .trim();
-
-        const newSite =
-            $("#newSite")
-                .value
-                .trim();
-
-        if (!newTechnician || !newSite) {
-            showMessage(
-                "Enter the new technician and site.",
-                "error"
-            );
-
-            return;
-        }
-
         try {
+            const sourceAllocation = history.find(record => {
+                return String(record.id) ===
+                    String($("#historyId").value);
+            });
+
+            if (!sourceAllocation) {
+                throw new Error("The original allocation could not be found.");
+            }
+
             await api(
                 "/rest/v1/rpc/transfer_tool",
                 {
@@ -1233,16 +1206,44 @@ $("#transferForm").addEventListener(
                             $("#historyId").value,
 
                         p_technician:
-                            newTechnician,
+                            $("#newTechnician")
+                                .value
+                                .trim(),
 
                         p_site:
-                            newSite,
+                            $("#newSite")
+                                .value
+                                .trim(),
 
                         p_date:
                             $("#transferDate").value
                     })
                 }
             );
+
+            const transferredAllocations = await api(
+                "/rest/v1/tool_history" +
+                `?tool_id=eq.${encodeURIComponent(sourceAllocation.tool_id)}` +
+                `&technician=eq.${encodeURIComponent($("#newTechnician").value.trim())}` +
+                `&site=eq.${encodeURIComponent($("#newSite").value.trim())}` +
+                `&assigned_on=eq.${encodeURIComponent($("#transferDate").value)}` +
+                "&ended_on=is.null" +
+                "&order=created_at.desc&limit=1"
+            );
+
+            if (transferredAllocations?.[0]?.id) {
+                await api(
+                    `/rest/v1/tool_history?id=eq.${encodeURIComponent(transferredAllocations[0].id)}`,
+                    {
+                        admin: true,
+                        method: "PATCH",
+                        headers: { Prefer: "return=minimal" },
+                        body: JSON.stringify({
+                            tool_number: sourceAllocation.tool_number || null
+                        })
+                    }
+                );
+            }
 
             $("#transfer").close();
 
@@ -1268,6 +1269,10 @@ $("#transferForm").addEventListener(
 
 showAuthentication();
 loadData();
+
+/*
+ * Refresh shared records every 60 seconds.
+ */
 
 setInterval(
     loadData,
