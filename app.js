@@ -592,6 +592,13 @@ function renderToolManagement(
                     <div class="managed-tool-actions">
                         <button
                             type="button"
+                            data-edit-quantity="${tool.id}"
+                        >
+                            Edit Quantity
+                        </button>
+
+                        <button
+                            type="button"
                             data-edit-description="${tool.id}"
                         >
                             Edit Description
@@ -856,6 +863,93 @@ $("#addTool").addEventListener(
 $("#manageTools").addEventListener(
     "click",
     async event => {
+        const quantityButton =
+            event.target.closest(
+                "[data-edit-quantity]"
+            );
+
+        if (quantityButton) {
+            const tool = tools.find(item => {
+                return String(item.id) ===
+                    String(
+                        quantityButton.dataset
+                            .editQuantity
+                    );
+            });
+
+            if (!tool) {
+                return;
+            }
+
+            const allocatedQuantity =
+                getActiveAllocations()
+                    .filter(record => {
+                        return record.tool_id ===
+                            tool.id;
+                    }).length;
+
+            const enteredQuantity = prompt(
+                `Edit total quantity for ${tool.name}:`,
+                tool.quantity
+            );
+
+            if (enteredQuantity === null) {
+                return;
+            }
+
+            const quantity = Number(
+                enteredQuantity.trim()
+            );
+
+            if (
+                !Number.isInteger(quantity) ||
+                quantity < 1
+            ) {
+                showMessage(
+                    "Enter a whole number of 1 or more.",
+                    "error"
+                );
+                return;
+            }
+
+            if (quantity < allocatedQuantity) {
+                showMessage(
+                    `Quantity cannot be below ${allocatedQuantity} because ${allocatedQuantity} unit(s) are currently allocated.`,
+                    "error"
+                );
+                return;
+            }
+
+            try {
+                await api(
+                    `/rest/v1/tools?id=eq.${encodeURIComponent(tool.id)}`,
+                    {
+                        admin: true,
+                        method: "PATCH",
+                        headers: {
+                            Prefer: "return=minimal"
+                        },
+                        body: JSON.stringify({
+                            quantity
+                        })
+                    }
+                );
+
+                showMessage(
+                    "Tool quantity updated."
+                );
+
+                await loadData();
+            } catch (error) {
+                showMessage(
+                    error.message,
+                    "error"
+                );
+            }
+
+            return;
+        }
+
         const editButton =
             event.target.closest(
                 "[data-edit-description]"
